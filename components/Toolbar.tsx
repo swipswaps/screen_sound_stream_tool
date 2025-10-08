@@ -1,178 +1,115 @@
 import React, { useState, useEffect } from 'react';
 import { AppStatus } from '../types';
-import { StopIcon, RecordIcon, ScreenIcon, WebcamIcon, MediaIcon, GraphicIcon, DownloadIcon, ResetIcon, SendIcon } from './icons';
+import { StopIcon, RecordIcon, ScreenIcon, WebcamIcon, MediaIcon, GraphicIcon } from './icons';
 
 interface ToolbarProps {
   status: AppStatus;
-  onStartScreenRecording: () => void;
-  onStartWebcamRecording: () => void;
-  onStopRecording: () => void;
+  onStartScreenShare: () => void;
+  onStartWebcam: () => void;
+  onStartRecording: () => void;
   onStartStreaming: () => void;
-  onStopStreaming: () => void;
-  onDownload: () => void;
-  onReset: () => void;
-  onSendMessage: (message: string) => void;
+  onStopSession: () => void;
+  onAddMedia: () => void;
+  onAddGraphic: () => void;
 }
 
-const ToolbarButton: React.FC<{ onClick?: () => void; disabled?: boolean; children: React.ReactNode; className?: string; 'aria-label': string; title?: string }> = ({ onClick, disabled, children, className = '', title, ...props }) => {
-    const buttonElement = (
-        <button
-            onClick={onClick}
-            disabled={disabled}
-            className={`flex flex-col items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-200 rounded-lg hover:bg-gray-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed w-full h-full ${className}`}
-            {...props}
-        >
-            {children}
-        </button>
+const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { 'aria-label': string, tooltip?: string }> = ({ children, className = '', tooltip, ...props }) => {
+    return (
+        <div className="relative group">
+            <button
+                {...props}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 font-semibold text-white rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+            >
+                {children}
+            </button>
+            {tooltip && (
+                 <div className="absolute bottom-full mb-2 w-max max-w-xs px-3 py-1.5 text-sm font-medium text-white bg-gray-800 border border-gray-700 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                    {tooltip}
+                </div>
+            )}
+        </div>
     );
-
-    // Wrap the button in a div when disabled with a title to ensure the tooltip works consistently.
-    if (disabled && title) {
-        return (
-            <div title={title} className="cursor-not-allowed">
-                {buttonElement}
-            </div>
-        );
-    }
-    
-    // Add title to the button itself if it's not disabled
-    if(title) {
-        return React.cloneElement(buttonElement, { title });
-    }
-
-    return buttonElement;
 };
 
 
 const Toolbar: React.FC<ToolbarProps> = ({ 
-    status, 
-    onStartScreenRecording, 
-    onStartWebcamRecording,
-    onStopRecording,
-    onStartStreaming, 
-    onStopStreaming,
-    onDownload, 
-    onReset,
-    onSendMessage
+    status,
+    onStartScreenShare,
+    onStartWebcam,
+    onStartRecording,
+    onStartStreaming,
+    onStopSession,
+    onAddMedia,
+    onAddGraphic,
 }) => {
-    const [message, setMessage] = useState('');
-    const [isServerOnline, setIsServerOnline] = useState(true); // Assume online to prevent UI flicker
-    const isSessionActive = status === AppStatus.Recording || status === AppStatus.Streaming;
-    const isIdle = status === AppStatus.Idle || status === AppStatus.Error;
+    const [isServerOnline, setIsServerOnline] = useState(true);
+    const hasActiveSession = status === AppStatus.Recording || status === AppStatus.Streaming;
+    const hasMediaSource = status !== AppStatus.Idle && status !== AppStatus.Error;
 
     useEffect(() => {
         const checkServerStatus = () => {
             const socket = new WebSocket('ws://localhost:8080');
-            socket.onopen = () => {
-                setIsServerOnline(true);
-                socket.close();
-            };
-            socket.onerror = () => {
-                setIsServerOnline(false);
-            };
+            socket.onopen = () => { setIsServerOnline(true); socket.close(); };
+            socket.onerror = () => setIsServerOnline(false);
         };
         checkServerStatus();
+        const intervalId = setInterval(checkServerStatus, 10000);
+        return () => clearInterval(intervalId);
     }, []);
 
-    const handleSendMessage = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (message.trim()) {
-            onSendMessage(message);
-            setMessage('');
-        }
-    };
-    
-    const handleStop = () => {
-        if (status === AppStatus.Recording) onStopRecording();
-        if (status === AppStatus.Streaming) onStopStreaming();
+    if (hasActiveSession) {
+        return (
+             <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 p-2 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-xl shadow-2xl flex items-center gap-2">
+                <Button onClick={onStopSession} aria-label="Stop Session" className="bg-red-600 hover:bg-red-700 focus:ring-red-500">
+                    <StopIcon />
+                    Stop
+                </Button>
+            </div>
+        )
     }
 
     return (
-        <footer className="w-full fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex justify-center px-4">
-            <div className="w-full max-w-xl p-2 bg-gray-800/70 backdrop-blur-sm border border-gray-700 rounded-xl shadow-2xl flex items-center justify-center gap-2">
-                {isIdle && (
-                     <>
-                        <ToolbarButton 
-                            onClick={onStartStreaming} 
-                            aria-label={isServerOnline ? "Start screen stream" : "Start screen stream (server offline)"}
-                            disabled={!isServerOnline}
-                            title={isServerOnline ? "Stream your screen and audio" : "Streaming server is offline. Run 'npm run start-server' in your terminal."}
-                        >
-                            <ScreenIcon />
-                            <span>Screen</span>
-                        </ToolbarButton>
-                        <ToolbarButton onClick={onStartScreenRecording} aria-label="Start screen recording">
-                            <RecordIcon />
-                            <span>Record</span>
-                        </ToolbarButton>
-                         <ToolbarButton onClick={onStartWebcamRecording} aria-label="Start webcam recording">
-                            <WebcamIcon />
-                            <span>Webcam</span>
-                        </ToolbarButton>
-                        <div className="h-6 w-px bg-gray-600"></div>
-                        <ToolbarButton disabled aria-label="Add media (disabled)">
-                           <MediaIcon />
-                            <span>Media</span>
-                        </ToolbarButton>
-                        <ToolbarButton disabled aria-label="Add graphic (disabled)">
-                           <GraphicIcon />
-                           <span>Graphic</span>
-                        </ToolbarButton>
-                    </>
-                )}
-
-                {isSessionActive && (
-                     <button
-                        onClick={handleStop}
-                        className="flex items-center justify-center gap-2 px-6 py-2.5 font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
-                        aria-label={status === AppStatus.Recording ? 'Stop Recording' : 'Stop Stream'}
-                    >
-                        <StopIcon />
-                        Stop
-                    </button>
-                )}
-
-                {status === AppStatus.Stopped && (
-                    <>
-                        <button
-                            onClick={onDownload}
-                            className="flex items-center justify-center gap-2 px-5 py-2.5 font-semibold bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
-                        >
-                            <DownloadIcon />
-                            Download Recording
-                        </button>
-                        <button
-                            onClick={onReset}
-                            className="flex items-center gap-2 px-4 py-2.5 font-semibold bg-gray-600 text-white rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
-                        >
-                            <ResetIcon />
-                            New Session
-                        </button>
-                    </>
-                )}
-                
-                {status === AppStatus.Streaming && (
-                    <form onSubmit={handleSendMessage} className="flex items-center gap-2 flex-grow ml-4">
-                        <input
-                            type="text"
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            placeholder="Send a message..."
-                            className="flex-grow bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-primary transition-all text-sm"
-                            aria-label="Message to send"
-                        />
-                        <button
-                            type="submit"
-                            className="flex items-center gap-2 px-3 py-2.5 font-semibold bg-brand-secondary text-white rounded-lg shadow-md hover:bg-brand-secondary/90 focus:outline-none focus:ring-2 focus:ring-brand-secondary focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                            disabled={!message.trim()}
-                            aria-label="Send message"
-                        >
-                           <SendIcon />
-                        </button>
-                    </form>
-                )}
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 p-2 bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-xl shadow-2xl flex items-center gap-2">
+            {/* Source Buttons */}
+            <div className="flex items-center gap-2 pr-2 border-r border-gray-700">
+                <Button onClick={onStartScreenShare} disabled={hasMediaSource} aria-label="Share Screen" className="bg-gray-700 hover:bg-gray-600 focus:ring-gray-500">
+                    <ScreenIcon />
+                    Screen
+                </Button>
+                 <Button onClick={onStartWebcam} aria-label="Add Webcam" className="bg-gray-700 hover:bg-gray-600 focus:ring-gray-500">
+                    <WebcamIcon />
+                    Webcam
+                </Button>
             </div>
-        </footer>
+            {/* Overlay Buttons */}
+             <div className="flex items-center gap-2 pr-2 border-r border-gray-700">
+                <Button onClick={onAddMedia} disabled={!hasMediaSource} aria-label="Add Media" className="bg-gray-700 hover:bg-gray-600 focus:ring-gray-500">
+                    <MediaIcon />
+                    Media
+                </Button>
+                <Button onClick={onAddGraphic} disabled={!hasMediaSource} aria-label="Add Graphic" className="bg-gray-700 hover:bg-gray-600 focus:ring-gray-500">
+                    <GraphicIcon />
+                    Graphic
+                </Button>
+            </div>
+
+            {/* Action Buttons */}
+             <div className="flex items-center gap-2">
+                 <Button onClick={onStartRecording} disabled={!hasMediaSource} aria-label="Record" className="bg-green-600 hover:bg-green-700 focus:ring-green-500">
+                    <RecordIcon />
+                    Record
+                </Button>
+                <Button 
+                    onClick={onStartStreaming}
+                    disabled={!hasMediaSource || !isServerOnline}
+                    tooltip={!isServerOnline ? "Streaming server offline. Run 'npm run start-server'." : "Stream the session"}
+                    aria-label="Stream" 
+                    className="bg-brand-primary hover:bg-brand-primary/90 focus:ring-brand-primary"
+                >
+                   Go Live
+                </Button>
+            </div>
+        </div>
     );
 };
 

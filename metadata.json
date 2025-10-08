@@ -1,6 +1,6 @@
 {
   "name": "Stream Studio",
-  "description": "A web application to record or stream your screen, webcam, and microphone audio. Based on the swipswaps/screen_streaming_tool design.",
+  "description": "A web application to compose and stream/record your screen, webcam, and other media overlays. Based on swipswaps/screen_streaming_tool.",
   "requestFramePermissions": [
     "microphone",
     "camera"

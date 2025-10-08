@@ -1,233 +1,252 @@
-import { useState, useRef, useCallback } from 'react';
-import { AppStatus } from '../types';
+import { useState, useRef, useCallback, RefObject, useEffect } from 'react';
+import { AppStatus, CanvasLayer, VideoLayer } from '../types';
 
 const WEBSOCKET_URL = 'ws://localhost:8080';
 
-export const useScreenRecorder = () => {
+export const useScreenRecorder = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const [status, setStatus] = useState<AppStatus>(AppStatus.Idle);
     const [error, setError] = useState<string | null>(null);
-    const [stream, setStream] = useState<MediaStream | null>(null);
-    const [videoUrl, setVideoUrl] = useState<string | null>(null);
+    const [layers, setLayers] = useState<CanvasLayer[]>([]);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
     const recordedChunks = useRef<Blob[]>([]);
+    const animationFrameId = useRef<number>(0);
+    const audioStreamRef = useRef<MediaStream | null>(null);
+    const primaryVideoLayerId = useRef<string | null>(null);
 
-    const cleanup = useCallback(() => {
-        stream?.getTracks().forEach(track => track.stop());
+
+    const renderCanvas = useCallback(() => {
+        if (!canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Set canvas resolution based on primary video source if available
+        const primaryLayer = layers.find(l => l.id === primaryVideoLayerId.current) as VideoLayer | undefined;
+        if (primaryLayer) {
+            if(canvas.width !== primaryLayer.mediaElement.videoWidth) {
+                canvas.width = primaryLayer.mediaElement.videoWidth;
+            }
+            if(canvas.height !== primaryLayer.mediaElement.videoHeight) {
+                canvas.height = primaryLayer.mediaElement.videoHeight;
+            }
+        } else {
+             // Default size or clear if no primary
+            if (canvas.width !== 1280) canvas.width = 1280;
+            if (canvas.height !== 720) canvas.height = 720;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0,0, canvas.width, canvas.height);
+
+
+        layers.forEach(layer => {
+            if (layer.type === 'video') {
+                ctx.drawImage(layer.mediaElement, layer.x, layer.y, layer.width, layer.height);
+            } else if (layer.type === 'image') {
+                ctx.drawImage(layer.image, layer.x, layer.y, layer.width, layer.height);
+            } else if (layer.type === 'text') {
+                ctx.font = layer.font;
+                ctx.fillStyle = layer.color;
+                ctx.fillText(layer.text, layer.x, layer.y, layer.maxWidth);
+            }
+        });
+
+        animationFrameId.current = requestAnimationFrame(renderCanvas);
+    }, [layers, canvasRef]);
+    
+    useEffect(() => {
+        animationFrameId.current = requestAnimationFrame(renderCanvas);
+        return () => {
+            cancelAnimationFrame(animationFrameId.current);
+        };
+    }, [renderCanvas]);
+
+    const stopSession = useCallback(() => {
+        // Stop all video elements and their tracks
+        layers.forEach(layer => {
+            if (layer.type === 'video') {
+                layer.mediaElement.pause();
+                layer.mediaElement.srcObject = null;
+                (layer.mediaElement.srcObject as MediaStream)?.getTracks().forEach(track => track.stop());
+            }
+        });
+        audioStreamRef.current?.getTracks().forEach(track => track.stop());
+
         if (mediaRecorderRef.current?.state !== 'inactive') {
             mediaRecorderRef.current?.stop();
         }
         if (socketRef.current?.readyState < 2) {
             socketRef.current?.close();
         }
-        if (videoUrl) {
-            URL.revokeObjectURL(videoUrl);
-        }
         
-        setStream(null);
-        setVideoUrl(null);
+        cancelAnimationFrame(animationFrameId.current);
+
+        // Reset state
+        setLayers([]);
+        primaryVideoLayerId.current = null;
         mediaRecorderRef.current = null;
         socketRef.current = null;
         recordedChunks.current = [];
-    }, [stream, videoUrl]);
+        audioStreamRef.current = null;
+        setStatus(AppStatus.Idle);
+        setError(null);
+    }, [layers]);
 
-    const stopAction = useCallback(() => {
-        if (mediaRecorderRef.current && (status === AppStatus.Streaming || status === AppStatus.Recording)) {
-            mediaRecorderRef.current.stop();
+    const addVideoLayer = async (stream: MediaStream, isPrimary = false) => {
+         const videoElement = document.createElement('video');
+         videoElement.srcObject = stream;
+         videoElement.muted = true;
+         videoElement.play().catch(console.error);
+         
+         await new Promise(resolve => videoElement.onloadedmetadata = resolve);
+
+        const newLayer: VideoLayer = {
+            id: stream.id,
+            type: 'video',
+            x: isPrimary ? 0 : 20,
+            y: isPrimary ? 0 : 20,
+            width: isPrimary ? stream.getVideoTracks()[0].getSettings().width! : 320,
+            height: isPrimary ? stream.getVideoTracks()[0].getSettings().height! : 180,
+            mediaElement: videoElement
+        };
+
+        if (isPrimary) {
+            primaryVideoLayerId.current = newLayer.id;
+            audioStreamRef.current = new MediaStream(stream.getAudioTracks());
         }
-    }, [status]);
-    
-    const handleStreamEnd = useCallback(() => {
-        stopAction();
-    }, [stopAction]);
 
-    const initializeMediaStream = useCallback(async (streamSource: 'screen' | 'webcam') => {
-        reset(); 
-
-        try {
-            let mediaStream: MediaStream;
-
-            if (streamSource === 'screen') {
-                 const displayStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { cursor: 'always' } as any,
-                    audio: true,
-                });
-
-                let audioStream: MediaStream | null = null;
-                try {
-                    audioStream = await navigator.mediaDevices.getUserMedia({
-                        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 },
-                    });
-                } catch (micError) {
-                    console.warn("Could not get microphone audio stream.", micError);
-                }
-
-                const videoTrack = displayStream.getVideoTracks()[0];
-                const audioTracks = [
-                    ...(displayStream.getAudioTracks()),
-                    ...(audioStream ? audioStream.getAudioTracks() : []),
-                ];
-                
-                mediaStream = new MediaStream([videoTrack, ...audioTracks]);
-                videoTrack.onended = handleStreamEnd;
-            } else { // webcam
-                 mediaStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 },
-                });
-            }
-            
-            setStream(mediaStream);
-            return mediaStream;
-        } catch (err) {
-            console.error("Error getting media stream:", err);
-            let message = 'An unknown error occurred while accessing media devices.';
-             if (err instanceof Error) {
-                if (err.name === 'NotAllowedError') {
-                    message = 'Permission to access screen or microphone was denied. Please allow access and try again.';
-                } else {
-                    message = err.message;
-                }
-            }
-            setError(message);
-            setStatus(AppStatus.Error);
-            return null;
-        }
-    }, [handleStreamEnd]);
-    
-    const createMediaRecorder = (stream: MediaStream, onDataAvailable: (event: BlobEvent) => void, onStop: () => void) => {
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp8,opus' });
-        recorder.ondataavailable = onDataAvailable;
-        recorder.onstop = onStop;
-        mediaRecorderRef.current = recorder;
-        return recorder;
+         setLayers(prev => [...prev, newLayer]);
+         setStatus(AppStatus.Ready);
     };
 
-    const startScreenRecording = useCallback(async () => {
-        const combinedStream = await initializeMediaStream('screen');
-        if (!combinedStream) return;
-
-        setStatus(AppStatus.Recording);
-        recordedChunks.current = [];
-
-        const recorder = createMediaRecorder(
-            combinedStream,
-            (event) => {
-                if (event.data.size > 0) recordedChunks.current.push(event.data);
-            },
-            () => {
-                const blob = new Blob(recordedChunks.current, { type: 'video/webm' });
-                const url = URL.createObjectURL(blob);
-                setVideoUrl(url);
-                setStatus(AppStatus.Stopped);
-            }
-        );
-        recorder.start();
-    }, [initializeMediaStream]);
+    const startScreenShare = async () => {
+        if (status !== AppStatus.Idle && status !== AppStatus.Error) return;
+        stopSession();
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { cursor: 'always' } as any,
+                audio: true
+            });
+            stream.getVideoTracks()[0].onended = stopSession;
+            await addVideoLayer(stream, true);
+        } catch (err) {
+             setError(err instanceof Error && err.name === 'NotAllowedError' ? 'Permission denied.' : 'Could not start screen share.');
+             setStatus(AppStatus.Error);
+        }
+    };
     
-    const startWebcamRecording = useCallback(async () => {
-        const webcamStream = await initializeMediaStream('webcam');
-        if (!webcamStream) return;
+    const startWebcam = async () => {
+         try {
+            const isPrimary = layers.length === 0;
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: isPrimary // Only capture audio if it's the first source
+            });
+            await addVideoLayer(stream, isPrimary);
+        } catch (err) {
+             setError(err instanceof Error && err.name === 'NotAllowedError' ? 'Permission denied.' : 'Could not start webcam.');
+             setStatus(AppStatus.Error);
+        }
+    };
 
-        setStatus(AppStatus.Recording);
-        recordedChunks.current = [];
-
-        const recorder = createMediaRecorder(
-            webcamStream,
-            (event) => {
-                if (event.data.size > 0) recordedChunks.current.push(event.data);
-            },
-            () => {
-                const blob = new Blob(recordedChunks.current, { type: 'video/webm' });
-                const url = URL.createObjectURL(blob);
-                setVideoUrl(url);
-                setStatus(AppStatus.Stopped);
+    const addMediaOverlay = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async () => {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                const imageBitmap = await createImageBitmap(file);
+                const newLayer: CanvasLayer = {
+                    id: `image-${Date.now()}`,
+                    type: 'image',
+                    x: 50,
+                    y: 50,
+                    width: 200,
+                    height: (200 / imageBitmap.width) * imageBitmap.height,
+                    image: imageBitmap,
+                };
+                setLayers(prev => [...prev, newLayer]);
             }
-        );
-        recorder.start();
-    }, [initializeMediaStream]);
+        };
+        input.click();
+    };
 
-    const stopRecording = useCallback(() => {
-        if (mediaRecorderRef.current && status === AppStatus.Recording) {
-            mediaRecorderRef.current.stop();
+    const addGraphicOverlay = () => {
+        const text = prompt("Enter text for the overlay:");
+        if (text) {
+            const newLayer: CanvasLayer = {
+                id: `text-${Date.now()}`,
+                type: 'text',
+                x: 50,
+                y: 100,
+                text: text,
+                font: 'bold 48px Arial',
+                color: 'white',
+                maxWidth: canvasRef.current!.width - 100,
+            };
+            setLayers(prev => [...prev, newLayer]);
         }
-    }, [status]);
+    };
+    
+    const beginCapture = (isStreaming: boolean) => {
+        if (!canvasRef.current || !audioStreamRef.current) return;
+        const canvasStream = canvasRef.current.captureStream(30);
+        const combinedStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...audioStreamRef.current.getAudioTracks()
+        ]);
 
+        const recorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm; codecs=vp8,opus', videoBitsPerSecond: 2500000 });
+        mediaRecorderRef.current = recorder;
 
-    const stopStreaming = useCallback(() => {
-        if (mediaRecorderRef.current && status === AppStatus.Streaming) {
-            mediaRecorderRef.current.stop();
-        } else {
-            cleanup();
-            setStatus(AppStatus.Idle);
-        }
-    }, [status, cleanup]);
-
-    const startStreaming = useCallback(async () => {
-        const combinedStream = await initializeMediaStream('screen');
-        if (!combinedStream) return;
-
-        socketRef.current = new WebSocket(WEBSOCKET_URL);
-
-        socketRef.current.onopen = () => {
-            console.log("WebSocket connection opened.");
-            setStatus(AppStatus.Streaming);
-
-            const recorder = createMediaRecorder(
-                combinedStream,
-                (event) => {
+        if (isStreaming) {
+            socketRef.current = new WebSocket(WEBSOCKET_URL);
+            socketRef.current.onopen = () => {
+                setStatus(AppStatus.Streaming);
+                 recorder.ondataavailable = (event) => {
                     if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
                         socketRef.current.send(event.data);
                     }
-                },
-                () => {
-                    cleanup();
-                    setStatus(AppStatus.Idle);
-                }
-            );
-            recorder.start(1000); // Send data every 1 second
-        };
-
-        socketRef.current.onerror = (event) => {
-            console.error("WebSocket connection error. This is often due to the server not running or being unreachable.");
-            setError("Failed to connect to streaming server. Ensure the server is running.");
-            setStatus(AppStatus.Error);
-            cleanup();
-        };
-        
-        socketRef.current.onclose = (event) => {
-            // A normal closure (code 1000) or a "No Status Received" (code 1005) after a clean disconnect are expected.
-            // We log other codes as they might indicate a problem.
-            if (event.code !== 1000 && event.code !== 1005) {
-                console.warn(`WebSocket connection closed unexpectedly: code=${event.code}, reason=${event.reason || 'No reason specified'}`);
-            }
-            if (status === AppStatus.Streaming) {
-                stopStreaming();
-            }
-        };
-    }, [initializeMediaStream, cleanup, status, stopStreaming]);
-    
-    const sendMessage = useCallback((message: string) => {
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
-            socketRef.current.send(message);
+                };
+                recorder.start(1000); // Send data every second
+            };
+            socketRef.current.onerror = () => {
+                setError("Failed to connect to streaming server.");
+                setStatus(AppStatus.Error);
+                stopSession();
+            };
         } else {
-            console.warn("Cannot send message, WebSocket is not open.");
+             setStatus(AppStatus.Recording);
+             recordedChunks.current = [];
+             recorder.ondataavailable = (event) => {
+                if (event.data.size > 0) recordedChunks.current.push(event.data);
+            };
+            recorder.onstop = () => {
+                const blob = new Blob(recordedChunks.current, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `stream-studio-recording-${Date.now()}.webm`;
+                a.click();
+                URL.revokeObjectURL(url);
+                stopSession();
+            };
+            recorder.start();
         }
-    }, []);
+    };
 
-    const reset = useCallback(() => {
-        cleanup();
-        setStatus(AppStatus.Idle);
-        setError(null);
-    }, [cleanup]);
+    const startRecording = () => beginCapture(false);
+    const startStreaming = () => beginCapture(true);
+
 
     return {
-        status, error, stream, videoUrl,
-        startScreenRecording,
-        startWebcamRecording,
-        stopRecording,
-        startStreaming, stopStreaming,
-        reset, sendMessage,
+        status, error,
+        startScreenShare, startWebcam,
+        startRecording, startStreaming,
+        stopSession, addMediaOverlay, addGraphicOverlay,
     };
 };

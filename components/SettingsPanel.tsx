@@ -80,6 +80,13 @@ const AppearanceEditor: React.FC<{ layer: VideoLayer | ImageLayer, onUpdate: (up
                     <input type="color" value={layer.borderColor ?? '#000000'} onChange={(e) => onUpdate({ borderColor: e.target.value })} className="w-full h-10 p-1 bg-gray-900 border border-gray-700 rounded-md cursor-pointer"/>
                 </div>
             </div>
+            <div>
+                <label className="text-xs text-gray-400 block mb-1">Border Style</label>
+                <select value={layer.borderStyle ?? 'solid'} onChange={e => onUpdate({ borderStyle: e.target.value as 'solid' | 'dashed' })} className={commonInputClass}>
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                </select>
+            </div>
         </div>
     );
 };

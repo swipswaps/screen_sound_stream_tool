@@ -180,6 +180,10 @@ export const useScreenRecorder = () => {
                 ctx.lineWidth = borderWidth;
                 ctx.strokeStyle = layer.borderColor ?? '#000000';
                 
+                if (layer.borderStyle === 'dashed') {
+                    ctx.setLineDash([15, 10]);
+                }
+                
                 const x = layer.x + borderWidth / 2;
                 const y = layer.y + borderWidth / 2;
                 const w = layer.width - borderWidth;
@@ -193,6 +197,9 @@ export const useScreenRecorder = () => {
                 ctx.arcTo(x, y, x + w, y, cornerRadius);
                 ctx.closePath();
                 ctx.stroke();
+
+                ctx.setLineDash([]); // Reset for next layer
+                
                 ctx.restore();
             }
 
@@ -305,6 +312,7 @@ export const useScreenRecorder = () => {
                 cornerRadius: 0,
                 borderWidth: 0,
                 borderColor: '#000000',
+                borderStyle: 'solid',
             };
             addLayer(newLayer);
         } catch (err) {
@@ -332,6 +340,7 @@ export const useScreenRecorder = () => {
                 cornerRadius: 0,
                 borderWidth: 0,
                 borderColor: '#000000',
+                borderStyle: 'solid',
             };
             addLayer(newLayer);
         } catch (err) {
@@ -402,6 +411,7 @@ export const useScreenRecorder = () => {
                             cornerRadius: 0,
                             borderWidth: 0,
                             borderColor: '#000000',
+                            borderStyle: 'solid',
                         };
                          addLayer(newLayer);
                     }

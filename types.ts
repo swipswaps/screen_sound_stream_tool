@@ -23,6 +23,7 @@ export interface VideoLayer extends Layer {
   cornerRadius?: number;
   borderColor?: string;
   borderWidth?: number;
+  borderStyle?: 'solid' | 'dashed';
 }
 
 export interface ImageLayer extends Layer {
@@ -31,6 +32,7 @@ export interface ImageLayer extends Layer {
   cornerRadius?: number;
   borderColor?: string;
   borderWidth?: number;
+  borderStyle?: 'solid' | 'dashed';
 }
 
 export interface TextLayer extends Layer {

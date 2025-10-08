@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RecordingStatus } from '../types';
-import { ScreenIcon, RecordIcon, WebcamIcon, MediaIcon, GraphicIcon, StopIcon, ChevronDownIcon } from './icons';
+import { ScreenIcon, RecordIcon, WebcamIcon, MediaIcon, GraphicIcon, StopIcon, ChevronDownIcon, SettingsIcon } from './icons';
 
 interface ToolbarProps {
   status: RecordingStatus;
@@ -10,6 +10,8 @@ interface ToolbarProps {
   onStop: () => void;
   onMedia: () => void;
   onGraphic: () => void;
+  onToggleSettings: () => void;
+  isSettingsPanelOpen: boolean;
 }
 
 // FIX: Define a props interface for ToolbarButton to fix incorrect 'children' prop missing error.
@@ -93,7 +95,7 @@ const WebcamButton = ({ onWebcam, disabled }: { onWebcam: (deviceId: string) => 
   )
 }
 
-const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord, onStop, onMedia, onGraphic }) => {
+const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord, onStop, onMedia, onGraphic, onToggleSettings, isSettingsPanelOpen }) => {
   const isSessionActive = status === 'session' || status === 'recording';
 
   return (
@@ -111,6 +113,11 @@ const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord,
         <ToolbarButton onClick={onGraphic}>
             <GraphicIcon className="h-8 w-8" />
             <span className="text-xs">Graphic</span>
+        </ToolbarButton>
+
+        <ToolbarButton onClick={onToggleSettings} disabled={!isSessionActive} className={isSessionActive && isSettingsPanelOpen ? 'bg-brand-primary text-white' : ''}>
+          <SettingsIcon className="h-8 w-8" />
+          <span className="text-xs">Settings</span>
         </ToolbarButton>
         
         <div className="w-px h-16 bg-gray-700" />

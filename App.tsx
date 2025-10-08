@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useScreenRecorder } from './hooks/useScreenRecorder';
 import Toolbar from './components/Toolbar';
 import SettingsPanel from './components/SettingsPanel';
@@ -27,6 +27,7 @@ const App: React.FC = () => {
     moveLayer,
   } = useScreenRecorder();
 
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(true);
   const isSessionActive = status === 'session' || status === 'recording';
 
   return (
@@ -50,7 +51,7 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-        {isSessionActive && (
+        {isSessionActive && isSettingsPanelOpen && (
           <SettingsPanel
             layers={layers}
             selectedLayerId={selectedLayerId}
@@ -69,6 +70,8 @@ const App: React.FC = () => {
         onStop={stopSession}
         onMedia={addMediaOverlay}
         onGraphic={addGraphicOverlay}
+        onToggleSettings={() => setIsSettingsPanelOpen(prev => !prev)}
+        isSettingsPanelOpen={isSettingsPanelOpen}
       />
        {error && <p className="text-red-500 text-center p-2 fixed bottom-24 w-full">{error.message}</p>}
     </div>

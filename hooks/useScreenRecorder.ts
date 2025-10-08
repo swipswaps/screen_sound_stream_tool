@@ -212,13 +212,27 @@ export const useScreenRecorder = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
+        const MimeTypes = [
+            'video/webm;codecs=vp9,opus',
+            'video/webm;codecs=vp8,opus',
+            'video/webm',
+        ];
+
+        const supportedMimeType = MimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+
+        if (!supportedMimeType) {
+            setError(new Error('Your browser does not support any available video recording formats.'));
+            console.error('No supported mime type found for MediaRecorder');
+            return;
+        }
+
         const canvasStream = canvas.captureStream(30);
         const mixedAudioStream = getMixedAudioStream();
         mixedAudioStream.getAudioTracks().forEach(track => {
             canvasStream.addTrack(track);
         });
 
-        mediaRecorderRef.current = new MediaRecorder(canvasStream, { mimeType: 'video/webm;codecs=vp9,opus' });
+        mediaRecorderRef.current = new MediaRecorder(canvasStream, { mimeType: supportedMimeType });
         recordedChunksRef.current = [];
         
         mediaRecorderRef.current.ondataavailable = (e) => {
@@ -226,7 +240,7 @@ export const useScreenRecorder = () => {
         };
         
         mediaRecorderRef.current.onstop = () => {
-            const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+            const blob = new Blob(recordedChunksRef.current, { type: supportedMimeType });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;

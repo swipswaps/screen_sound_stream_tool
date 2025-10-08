@@ -155,6 +155,15 @@ export const useScreenRecorder = () => {
     }, [status]);
 
 
+    const stopStreaming = useCallback(() => {
+        if (mediaRecorderRef.current && status === AppStatus.Streaming) {
+            mediaRecorderRef.current.stop();
+        } else {
+            cleanup();
+            setStatus(AppStatus.Idle);
+        }
+    }, [status, cleanup]);
+
     const startStreaming = useCallback(async () => {
         const combinedStream = await initializeMediaStream('screen');
         if (!combinedStream) return;
@@ -181,27 +190,23 @@ export const useScreenRecorder = () => {
         };
 
         socketRef.current.onerror = (event) => {
-            console.error("WebSocket error:", event);
+            console.error("WebSocket connection error. This is often due to the server not running or being unreachable.");
             setError("Failed to connect to streaming server. Ensure the server is running.");
             setStatus(AppStatus.Error);
             cleanup();
         };
         
-        socketRef.current.onclose = () => {
+        socketRef.current.onclose = (event) => {
+            // A normal closure (code 1000) or a "No Status Received" (code 1005) after a clean disconnect are expected.
+            // We log other codes as they might indicate a problem.
+            if (event.code !== 1000 && event.code !== 1005) {
+                console.warn(`WebSocket connection closed unexpectedly: code=${event.code}, reason=${event.reason || 'No reason specified'}`);
+            }
             if (status === AppStatus.Streaming) {
                 stopStreaming();
             }
         };
-    }, [initializeMediaStream, cleanup, status]);
-
-    const stopStreaming = useCallback(() => {
-        if (mediaRecorderRef.current && status === AppStatus.Streaming) {
-            mediaRecorderRef.current.stop();
-        } else {
-            cleanup();
-            setStatus(AppStatus.Idle);
-        }
-    }, [status, cleanup]);
+    }, [initializeMediaStream, cleanup, status, stopStreaming]);
     
     const sendMessage = useCallback((message: string) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) {

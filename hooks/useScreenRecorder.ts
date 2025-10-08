@@ -1,252 +1,317 @@
-import { useState, useRef, useCallback, RefObject, useEffect } from 'react';
-import { AppStatus, CanvasLayer, VideoLayer } from '../types';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { RecordingStatus, CanvasLayer, VideoLayer, ImageLayer, TextLayer } from '../types';
 
-const WEBSOCKET_URL = 'ws://localhost:8080';
+type ActionState = {
+  action: 'move' | 'resize' | null;
+  layerId: string | null;
+  handle: 'tl' | 'tr' | 'bl' | 'br' | 'body' | null;
+  offsetX: number;
+  offsetY: number;
+};
 
-export const useScreenRecorder = (canvasRef: RefObject<HTMLCanvasElement>) => {
-    const [status, setStatus] = useState<AppStatus>(AppStatus.Idle);
-    const [error, setError] = useState<string | null>(null);
+const HANDLE_SIZE = 10;
+
+export const useScreenRecorder = () => {
+    const [status, setStatus] = useState<RecordingStatus>('idle');
+    const [error, setError] = useState<Error | null>(null);
     const [layers, setLayers] = useState<CanvasLayer[]>([]);
-
+    const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+    const [cursorStyle, setCursorStyle] = useState('default');
+    
+    const canvasRef = useRef<HTMLCanvasElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const socketRef = useRef<WebSocket | null>(null);
-    const recordedChunks = useRef<Blob[]>([]);
-    const animationFrameId = useRef<number>(0);
-    const audioStreamRef = useRef<MediaStream | null>(null);
-    const primaryVideoLayerId = useRef<string | null>(null);
+    const recordedChunksRef = useRef<Blob[]>([]);
+    const animationFrameRef = useRef<number>();
+    const actionStateRef = useRef<ActionState>({ action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 });
 
+    const getMixedAudioStream = useCallback(() => {
+        // FIX: Use a cross-browser compatible way to instantiate AudioContext to prevent potential errors on different platforms.
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const destination = audioContext.createMediaStreamDestination();
+        
+        layers.forEach(layer => {
+            if (layer.type === 'video' && layer.stream.getAudioTracks().length > 0) {
+                const source = audioContext.createMediaStreamSource(layer.stream);
+                source.connect(destination);
+            }
+        });
+        return destination.stream;
+    }, [layers]);
 
     const renderCanvas = useCallback(() => {
-        if (!canvasRef.current) return;
         const canvas = canvasRef.current;
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        // Set canvas resolution based on primary video source if available
-        const primaryLayer = layers.find(l => l.id === primaryVideoLayerId.current) as VideoLayer | undefined;
-        if (primaryLayer) {
-            if(canvas.width !== primaryLayer.mediaElement.videoWidth) {
-                canvas.width = primaryLayer.mediaElement.videoWidth;
-            }
-            if(canvas.height !== primaryLayer.mediaElement.videoHeight) {
-                canvas.height = primaryLayer.mediaElement.videoHeight;
-            }
-        } else {
-             // Default size or clear if no primary
-            if (canvas.width !== 1280) canvas.width = 1280;
-            if (canvas.height !== 720) canvas.height = 720;
-        }
-
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0,0, canvas.width, canvas.height);
-
 
         layers.forEach(layer => {
-            if (layer.type === 'video') {
-                ctx.drawImage(layer.mediaElement, layer.x, layer.y, layer.width, layer.height);
-            } else if (layer.type === 'image') {
-                ctx.drawImage(layer.image, layer.x, layer.y, layer.width, layer.height);
+            if (!layer.visible) return;
+            ctx.save();
+            if (layer.type === 'video' || layer.type === 'image') {
+                ctx.drawImage(layer.element, layer.x, layer.y, layer.width, layer.height);
             } else if (layer.type === 'text') {
                 ctx.font = layer.font;
                 ctx.fillStyle = layer.color;
-                ctx.fillText(layer.text, layer.x, layer.y, layer.maxWidth);
+                ctx.textBaseline = 'top';
+                // Basic text wrapping
+                const words = layer.text.split(' ');
+                let line = '';
+                let textY = layer.y;
+                for (let n = 0; n < words.length; n++) {
+                    const testLine = line + words[n] + ' ';
+                    const metrics = ctx.measureText(testLine);
+                    const testWidth = metrics.width;
+                    if (testWidth > layer.width && n > 0) {
+                        ctx.fillText(line, layer.x, textY);
+                        line = words[n] + ' ';
+                        textY += parseInt(layer.font, 10) * 1.2;
+                    } else {
+                        line = testLine;
+                    }
+                }
+                ctx.fillText(line, layer.x, textY);
+            }
+            ctx.restore();
+
+            // Draw selection handles if selected
+            if (layer.id === selectedLayerId) {
+                ctx.strokeStyle = '#4f46e5';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(layer.x, layer.y, layer.width, layer.height);
+
+                // Handles
+                ctx.fillStyle = '#4f46e5';
+                ctx.fillRect(layer.x - HANDLE_SIZE / 2, layer.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE); // tl
+                ctx.fillRect(layer.x + layer.width - HANDLE_SIZE / 2, layer.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE); // tr
+                ctx.fillRect(layer.x - HANDLE_SIZE / 2, layer.y + layer.height - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE); // bl
+                ctx.fillRect(layer.x + layer.width - HANDLE_SIZE / 2, layer.y + layer.height - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE); // br
             }
         });
 
-        animationFrameId.current = requestAnimationFrame(renderCanvas);
-    }, [layers, canvasRef]);
-    
+        animationFrameRef.current = requestAnimationFrame(renderCanvas);
+    }, [layers, selectedLayerId]);
+
     useEffect(() => {
-        animationFrameId.current = requestAnimationFrame(renderCanvas);
+        const canvas = canvasRef.current;
+        if (canvas) {
+            // Set canvas resolution
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+        }
+        animationFrameRef.current = requestAnimationFrame(renderCanvas);
         return () => {
-            cancelAnimationFrame(animationFrameId.current);
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+            }
         };
     }, [renderCanvas]);
 
     const stopSession = useCallback(() => {
-        // Stop all video elements and their tracks
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
         layers.forEach(layer => {
             if (layer.type === 'video') {
-                layer.mediaElement.pause();
-                layer.mediaElement.srcObject = null;
-                (layer.mediaElement.srcObject as MediaStream)?.getTracks().forEach(track => track.stop());
+                layer.stream.getTracks().forEach(track => track.stop());
             }
         });
-        audioStreamRef.current?.getTracks().forEach(track => track.stop());
-
-        if (mediaRecorderRef.current?.state !== 'inactive') {
-            mediaRecorderRef.current?.stop();
-        }
-        if (socketRef.current?.readyState < 2) {
-            socketRef.current?.close();
-        }
-        
-        cancelAnimationFrame(animationFrameId.current);
-
-        // Reset state
         setLayers([]);
-        primaryVideoLayerId.current = null;
-        mediaRecorderRef.current = null;
-        socketRef.current = null;
-        recordedChunks.current = [];
-        audioStreamRef.current = null;
-        setStatus(AppStatus.Idle);
-        setError(null);
+        setStatus('idle');
+        setSelectedLayerId(null);
     }, [layers]);
 
-    const addVideoLayer = async (stream: MediaStream, isPrimary = false) => {
-         const videoElement = document.createElement('video');
-         videoElement.srcObject = stream;
-         videoElement.muted = true;
-         videoElement.play().catch(console.error);
-         
-         await new Promise(resolve => videoElement.onloadedmetadata = resolve);
-
-        const newLayer: VideoLayer = {
-            id: stream.id,
-            type: 'video',
-            x: isPrimary ? 0 : 20,
-            y: isPrimary ? 0 : 20,
-            width: isPrimary ? stream.getVideoTracks()[0].getSettings().width! : 320,
-            height: isPrimary ? stream.getVideoTracks()[0].getSettings().height! : 180,
-            mediaElement: videoElement
-        };
-
-        if (isPrimary) {
-            primaryVideoLayerId.current = newLayer.id;
-            audioStreamRef.current = new MediaStream(stream.getAudioTracks());
-        }
-
-         setLayers(prev => [...prev, newLayer]);
-         setStatus(AppStatus.Ready);
+    const addLayer = (layer: CanvasLayer) => {
+        setLayers(prev => [...prev, layer]);
+        setStatus('session');
     };
-
-    const startScreenShare = async () => {
-        if (status !== AppStatus.Idle && status !== AppStatus.Error) return;
-        stopSession();
+    
+    const startScreenLayer = async () => {
         try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: 'always' } as any,
-                audio: true
+            // FIX: The 'cursor' property is valid for getDisplayMedia but not in the standard MediaTrackConstraints type. Cast to 'any' to bypass the type error.
+            const stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'always' } as any, audio: true });
+            const videoElement = document.createElement('video');
+            videoElement.srcObject = stream;
+            videoElement.muted = true;
+            videoElement.play();
+
+            const track = stream.getVideoTracks()[0];
+            const { width, height } = track.getSettings();
+
+            addLayer({
+                id: `screen-${Date.now()}`, type: 'video', stream, element: videoElement, x: 50, y: 50, width: width ? width / 2 : 640, height: height ? height / 2 : 360, visible: true, sourceType: 'screen'
             });
-            stream.getVideoTracks()[0].onended = stopSession;
-            await addVideoLayer(stream, true);
         } catch (err) {
-             setError(err instanceof Error && err.name === 'NotAllowedError' ? 'Permission denied.' : 'Could not start screen share.');
-             setStatus(AppStatus.Error);
+            setError(new Error('Could not start screen sharing.'));
         }
     };
     
-    const startWebcam = async () => {
-         try {
-            const isPrimary = layers.length === 0;
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: isPrimary // Only capture audio if it's the first source
+    const startWebcamLayer = async (deviceId: string) => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId }, audio: true });
+            const videoElement = document.createElement('video');
+            videoElement.srcObject = stream;
+            videoElement.muted = true;
+            videoElement.play();
+
+            const track = stream.getVideoTracks()[0];
+            const { width, height } = track.getSettings();
+
+            addLayer({
+                id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam'
             });
-            await addVideoLayer(stream, isPrimary);
         } catch (err) {
-             setError(err instanceof Error && err.name === 'NotAllowedError' ? 'Permission denied.' : 'Could not start webcam.');
-             setStatus(AppStatus.Error);
+            setError(new Error('Could not start webcam.'));
         }
+    };
+
+    const startRecording = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const canvasStream = canvas.captureStream(30);
+        const mixedAudioStream = getMixedAudioStream();
+        mixedAudioStream.getAudioTracks().forEach(track => {
+            canvasStream.addTrack(track);
+        });
+
+        mediaRecorderRef.current = new MediaRecorder(canvasStream, { mimeType: 'video/webm;codecs=vp9,opus' });
+        recordedChunksRef.current = [];
+        
+        mediaRecorderRef.current.ondataavailable = (e) => {
+            if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+        };
+        
+        mediaRecorderRef.current.onstop = () => {
+            const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `stream-studio-recording-${Date.now()}.webm`;
+            a.click();
+            URL.revokeObjectURL(url);
+            setStatus('session');
+        };
+
+        mediaRecorderRef.current.start();
+        setStatus('recording');
     };
 
     const addMediaOverlay = () => {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
-        input.onchange = async () => {
-            if (input.files && input.files[0]) {
-                const file = input.files[0];
-                const imageBitmap = await createImageBitmap(file);
-                const newLayer: CanvasLayer = {
-                    id: `image-${Date.now()}`,
-                    type: 'image',
-                    x: 50,
-                    y: 50,
-                    width: 200,
-                    height: (200 / imageBitmap.width) * imageBitmap.height,
-                    image: imageBitmap,
-                };
-                setLayers(prev => [...prev, newLayer]);
+        input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = document.createElement('img');
+                    img.src = event.target?.result as string;
+                    img.onload = () => {
+                         addLayer({
+                            id: `image-${Date.now()}`, type: 'image', element: img, x: 150, y: 150, width: img.width / 2, height: img.height / 2, visible: true,
+                        });
+                    }
+                }
+                reader.readAsDataURL(file);
             }
-        };
+        }
         input.click();
     };
 
     const addGraphicOverlay = () => {
-        const text = prompt("Enter text for the overlay:");
+        const text = prompt("Enter text for the graphic overlay:");
         if (text) {
-            const newLayer: CanvasLayer = {
-                id: `text-${Date.now()}`,
-                type: 'text',
-                x: 50,
-                y: 100,
-                text: text,
-                font: 'bold 48px Arial',
-                color: 'white',
-                maxWidth: canvasRef.current!.width - 100,
-            };
-            setLayers(prev => [...prev, newLayer]);
+             addLayer({
+                id: `text-${Date.now()}`, type: 'text', text, x: 200, y: 200, width: 300, height: 100, visible: true, font: 'bold 48px Arial', color: 'white',
+            });
         }
     };
     
-    const beginCapture = (isStreaming: boolean) => {
-        if (!canvasRef.current || !audioStreamRef.current) return;
-        const canvasStream = canvasRef.current.captureStream(30);
-        const combinedStream = new MediaStream([
-            ...canvasStream.getVideoTracks(),
-            ...audioStreamRef.current.getAudioTracks()
-        ]);
-
-        const recorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm; codecs=vp8,opus', videoBitsPerSecond: 2500000 });
-        mediaRecorderRef.current = recorder;
-
-        if (isStreaming) {
-            socketRef.current = new WebSocket(WEBSOCKET_URL);
-            socketRef.current.onopen = () => {
-                setStatus(AppStatus.Streaming);
-                 recorder.ondataavailable = (event) => {
-                    if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
-                        socketRef.current.send(event.data);
-                    }
-                };
-                recorder.start(1000); // Send data every second
-            };
-            socketRef.current.onerror = () => {
-                setError("Failed to connect to streaming server.");
-                setStatus(AppStatus.Error);
-                stopSession();
-            };
+    // FIX: Add an explicit return type to ensure TypeScript correctly infers the 'handle' property as a literal union type, not a generic string.
+    const getLayerAndHandleAt = (x: number, y: number): { layer: CanvasLayer | null, handle: ActionState['handle'] } => {
+        for (const layer of [...layers].reverse()) {
+             if (layer.id === selectedLayerId) {
+                // Check handles first
+                const hx = layer.x - HANDLE_SIZE / 2;
+                const hy = layer.y - HANDLE_SIZE / 2;
+                const hx2 = layer.x + layer.width - HANDLE_SIZE / 2;
+                const hy2 = layer.y + layer.height - HANDLE_SIZE / 2;
+                if (x > hx && x < hx + HANDLE_SIZE && y > hy && y < hy + HANDLE_SIZE) return { layer, handle: 'tl' };
+                if (x > hx2 && x < hx2 + HANDLE_SIZE && y > hy && y < hy + HANDLE_SIZE) return { layer, handle: 'tr' };
+                if (x > hx && x < hx + HANDLE_SIZE && y > hy2 && y < hy2 + HANDLE_SIZE) return { layer, handle: 'bl' };
+                if (x > hx2 && x < hx2 + HANDLE_SIZE && y > hy2 && y < hy2 + HANDLE_SIZE) return { layer, handle: 'br' };
+             }
+             // Check body
+             if (x > layer.x && x < layer.x + layer.width && y > layer.y && y < layer.y + layer.height) {
+                 return { layer, handle: 'body' };
+             }
+        }
+        return { layer: null, handle: null };
+    }
+    
+    const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        const { offsetX, offsetY } = e.nativeEvent;
+        const { layer, handle } = getLayerAndHandleAt(offsetX, offsetY);
+        
+        if (layer) {
+            setSelectedLayerId(layer.id);
+            const action = handle === 'body' ? 'move' : 'resize';
+            actionStateRef.current = { action, layerId: layer.id, handle, offsetX: offsetX - layer.x, offsetY: offsetY - layer.y };
         } else {
-             setStatus(AppStatus.Recording);
-             recordedChunks.current = [];
-             recorder.ondataavailable = (event) => {
-                if (event.data.size > 0) recordedChunks.current.push(event.data);
-            };
-            recorder.onstop = () => {
-                const blob = new Blob(recordedChunks.current, { type: 'video/webm' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `stream-studio-recording-${Date.now()}.webm`;
-                a.click();
-                URL.revokeObjectURL(url);
-                stopSession();
-            };
-            recorder.start();
+            setSelectedLayerId(null);
+            actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 };
+        }
+    };
+    
+    const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        const { offsetX, offsetY } = e.nativeEvent;
+        const { action, layerId, handle, offsetX: startOffsetX, offsetY: startOffsetY } = actionStateRef.current;
+        
+        if (action && layerId) { // We are dragging/resizing
+            setLayers(prev => prev.map(l => {
+                if (l.id === layerId) {
+                    const newLayer = { ...l };
+                    if (action === 'move') {
+                        newLayer.x = offsetX - startOffsetX;
+                        newLayer.y = offsetY - startOffsetY;
+                    } else if (action === 'resize') {
+                        const right = newLayer.x + newLayer.width;
+                        const bottom = newLayer.y + newLayer.height;
+                        if (handle === 'tl') { newLayer.width = right - offsetX; newLayer.height = bottom - offsetY; newLayer.x = offsetX; newLayer.y = offsetY; }
+                        else if (handle === 'tr') { newLayer.width = offsetX - newLayer.x; newLayer.height = bottom - offsetY; newLayer.y = offsetY; }
+                        else if (handle === 'bl') { newLayer.width = right - offsetX; newLayer.height = offsetY - newLayer.y; newLayer.x = offsetX; }
+                        else if (handle === 'br') { newLayer.width = offsetX - newLayer.x; newLayer.height = offsetY - newLayer.y; }
+                        if (newLayer.width < 20) newLayer.width = 20;
+                        if (newLayer.height < 20) newLayer.height = 20;
+                    }
+                    return newLayer;
+                }
+                return l;
+            }));
+        } else { // Just hovering
+            const { handle } = getLayerAndHandleAt(offsetX, offsetY);
+            if (handle === 'body') setCursorStyle('move');
+            else if (handle === 'tl' || handle === 'br') setCursorStyle('nwse-resize');
+            else if (handle === 'tr' || handle === 'bl') setCursorStyle('nesw-resize');
+            else setCursorStyle('default');
         }
     };
 
-    const startRecording = () => beginCapture(false);
-    const startStreaming = () => beginCapture(true);
+    const handleMouseUp = () => {
+        actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 };
+    };
 
+    const handleMouseLeave = () => {
+        actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 };
+        setCursorStyle('default');
+    };
 
     return {
-        status, error,
-        startScreenShare, startWebcam,
-        startRecording, startStreaming,
-        stopSession, addMediaOverlay, addGraphicOverlay,
+        status, canvasRef, error, startScreenLayer, startWebcamLayer, startRecording, stopSession, addMediaOverlay, addGraphicOverlay,
+        handleMouseDown, handleMouseMove, handleMouseUp, handleMouseLeave, cursorStyle
     };
 };

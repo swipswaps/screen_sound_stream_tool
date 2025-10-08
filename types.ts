@@ -1,42 +1,32 @@
-export enum AppStatus {
-  Idle = 'idle',
-  // A source (screen/webcam) has been selected, but not yet recording/streaming
-  Ready = 'ready', 
-  Recording = 'recording',
-  Streaming = 'streaming',
-  Error = 'error',
+export type RecordingStatus = 'idle' | 'session' | 'recording' | 'stopped';
+
+export interface Layer {
+  id: string;
+  type: 'video' | 'image' | 'text';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
 }
 
-export interface VideoLayer {
-  id: string;
+export interface VideoLayer extends Layer {
   type: 'video';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  mediaElement: HTMLVideoElement; // Hidden video element playing the stream
+  stream: MediaStream;
+  element: HTMLVideoElement;
+  sourceType: 'screen' | 'webcam';
 }
 
-export interface ImageLayer {
-  id: string;
+export interface ImageLayer extends Layer {
   type: 'image';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  image: ImageBitmap;
+  element: HTMLImageElement;
 }
 
-export interface TextLayer {
-  id: string;
+export interface TextLayer extends Layer {
   type: 'text';
-  x: number;
-  y: number;
   text: string;
   font: string;
   color: string;
-  maxWidth: number;
 }
-
 
 export type CanvasLayer = VideoLayer | ImageLayer | TextLayer;

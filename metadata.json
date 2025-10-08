@@ -1,6 +1,6 @@
 {
-  "name": "Screen & Sound Recorder",
-  "description": "A web application to record your screen and microphone audio simultaneously. You can preview the recording and download it as a video file.",
+  "name": "Screen Streamer",
+  "description": "A web application to stream your screen and microphone audio simultaneously over a WebSocket connection.",
   "requestFramePermissions": [
     "microphone"
   ]

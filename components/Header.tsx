@@ -11,10 +11,10 @@ const Header: React.FC = () => {
     <header className="text-center">
         <div className="flex items-center justify-center gap-3">
             <CameraIcon />
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-100">Screen Recorder & Streamer</h1>
+            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-100">Screen Streamer</h1>
         </div>
       <p className="mt-3 text-lg text-gray-400">
-        Record or stream your screen and microphone with ease, right from your browser.
+        Stream your screen and microphone with ease, right from your browser.
       </p>
     </header>
   );

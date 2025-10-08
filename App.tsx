@@ -9,14 +9,10 @@ import { SendIcon } from './components/icons';
 const App: React.FC = () => {
   const {
     status,
-    videoUrl,
     error,
     stream,
-    startRecording,
-    stopRecording,
     startStreaming,
     stopStreaming,
-    downloadRecording,
     reset,
     sendMessage,
   } = useScreenRecorder();
@@ -37,7 +33,7 @@ const App: React.FC = () => {
         <Header />
         <main className="mt-8 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
           <div className="p-4 sm:p-6">
-            <VideoPlayer stream={stream} videoUrl={videoUrl} />
+            <VideoPlayer stream={stream} />
           </div>
 
           {status === AppStatus.Streaming && (
@@ -75,17 +71,14 @@ const App: React.FC = () => {
             )}
             <Controls
               status={status}
-              onStartRecording={startRecording}
-              onStopRecording={stopRecording}
               onStartStreaming={startStreaming}
               onStopStreaming={stopStreaming}
-              onDownload={downloadRecording}
               onReset={reset}
             />
           </div>
         </main>
         <footer className="text-center mt-8 text-gray-500 text-sm">
-            <p>Your recordings and streams are processed locally in your browser.</p>
+            <p>Your stream is processed locally in your browser and sent to the server.</p>
         </footer>
       </div>
     </div>

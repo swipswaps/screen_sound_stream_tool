@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppStatus } from '../types';
 import { StopIcon, RecordIcon, ScreenIcon, WebcamIcon, MediaIcon, GraphicIcon, DownloadIcon, ResetIcon, SendIcon } from './icons';
 
@@ -14,17 +14,33 @@ interface ToolbarProps {
   onSendMessage: (message: string) => void;
 }
 
-const ToolbarButton: React.FC<{ onClick?: () => void; disabled?: boolean; children: React.ReactNode; className?: string, 'aria-label': string }> = ({ onClick, disabled, children, className = '', ...props }) => {
-    return (
+const ToolbarButton: React.FC<{ onClick?: () => void; disabled?: boolean; children: React.ReactNode; className?: string; 'aria-label': string; title?: string }> = ({ onClick, disabled, children, className = '', title, ...props }) => {
+    const buttonElement = (
         <button
             onClick={onClick}
             disabled={disabled}
-            className={`flex flex-col items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-200 rounded-lg hover:bg-gray-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+            className={`flex flex-col items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-200 rounded-lg hover:bg-gray-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed w-full h-full ${className}`}
             {...props}
         >
             {children}
         </button>
     );
+
+    // Wrap the button in a div when disabled with a title to ensure the tooltip works consistently.
+    if (disabled && title) {
+        return (
+            <div title={title} className="cursor-not-allowed">
+                {buttonElement}
+            </div>
+        );
+    }
+    
+    // Add title to the button itself if it's not disabled
+    if(title) {
+        return React.cloneElement(buttonElement, { title });
+    }
+
+    return buttonElement;
 };
 
 
@@ -40,8 +56,23 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onSendMessage
 }) => {
     const [message, setMessage] = useState('');
+    const [isServerOnline, setIsServerOnline] = useState(true); // Assume online to prevent UI flicker
     const isSessionActive = status === AppStatus.Recording || status === AppStatus.Streaming;
     const isIdle = status === AppStatus.Idle || status === AppStatus.Error;
+
+    useEffect(() => {
+        const checkServerStatus = () => {
+            const socket = new WebSocket('ws://localhost:8080');
+            socket.onopen = () => {
+                setIsServerOnline(true);
+                socket.close();
+            };
+            socket.onerror = () => {
+                setIsServerOnline(false);
+            };
+        };
+        checkServerStatus();
+    }, []);
 
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
@@ -61,7 +92,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
             <div className="w-full max-w-xl p-2 bg-gray-800/70 backdrop-blur-sm border border-gray-700 rounded-xl shadow-2xl flex items-center justify-center gap-2">
                 {isIdle && (
                      <>
-                        <ToolbarButton onClick={onStartStreaming} aria-label="Start screen stream">
+                        <ToolbarButton 
+                            onClick={onStartStreaming} 
+                            aria-label={isServerOnline ? "Start screen stream" : "Start screen stream (server offline)"}
+                            disabled={!isServerOnline}
+                            title={isServerOnline ? "Stream your screen and audio" : "Streaming server is offline. Run 'npm run start-server' in your terminal."}
+                        >
                             <ScreenIcon />
                             <span>Screen</span>
                         </ToolbarButton>

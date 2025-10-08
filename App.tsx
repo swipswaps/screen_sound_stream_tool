@@ -1,12 +1,16 @@
 import React from 'react';
 import { useScreenRecorder } from './hooks/useScreenRecorder';
 import Toolbar from './components/Toolbar';
+import SettingsPanel from './components/SettingsPanel';
 
 const App: React.FC = () => {
   const {
     status,
     canvasRef,
     error,
+    layers,
+    selectedLayerId,
+    setSelectedLayerId,
     startScreenLayer,
     startWebcamLayer,
     startRecording,
@@ -18,12 +22,17 @@ const App: React.FC = () => {
     handleMouseUp,
     handleMouseLeave,
     cursorStyle,
+    updateLayer,
+    removeLayer,
+    moveLayer,
   } = useScreenRecorder();
+
+  const isSessionActive = status === 'session' || status === 'recording';
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-gray-100 font-sans select-none">
-      <main className="flex-grow flex items-center justify-center p-8">
-        <div className="w-full h-full bg-black rounded-lg shadow-inner overflow-hidden relative">
+      <main className="flex-grow flex items-stretch p-8 space-x-8 overflow-hidden">
+        <div className="flex-grow flex items-center justify-center bg-black rounded-lg shadow-inner overflow-hidden relative">
           <canvas
             ref={canvasRef}
             className="w-full h-full"
@@ -41,6 +50,16 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+        {isSessionActive && (
+          <SettingsPanel
+            layers={layers}
+            selectedLayerId={selectedLayerId}
+            onSelectLayer={setSelectedLayerId}
+            onUpdateLayer={updateLayer}
+            onRemoveLayer={removeLayer}
+            onMoveLayer={moveLayer}
+          />
+        )}
       </main>
       <Toolbar
         status={status}

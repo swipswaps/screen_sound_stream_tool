@@ -25,7 +25,9 @@ export interface ImageLayer extends Layer {
 export interface TextLayer extends Layer {
   type: 'text';
   text: string;
-  font: string;
+  fontSize: number;
+  fontFamily: string;
+  fontWeight: string;
   color: string;
 }
 

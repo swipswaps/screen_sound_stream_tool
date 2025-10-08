@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { RecordingStatus, CanvasLayer, VideoLayer, ImageLayer, TextLayer } from '../types';
+import { RecordingStatus, CanvasLayer, VideoLayer, TextLayer } from '../types';
 
 type ActionState = {
   action: 'move' | 'resize' | null;
@@ -25,7 +25,6 @@ export const useScreenRecorder = () => {
     const actionStateRef = useRef<ActionState>({ action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 });
 
     const getMixedAudioStream = useCallback(() => {
-        // FIX: Use a cross-browser compatible way to instantiate AudioContext to prevent potential errors on different platforms.
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         const destination = audioContext.createMediaStreamDestination();
         
@@ -46,16 +45,18 @@ export const useScreenRecorder = () => {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        // Render layers in order
         layers.forEach(layer => {
             if (!layer.visible) return;
             ctx.save();
             if (layer.type === 'video' || layer.type === 'image') {
                 ctx.drawImage(layer.element, layer.x, layer.y, layer.width, layer.height);
             } else if (layer.type === 'text') {
-                ctx.font = layer.font;
+                ctx.font = `${layer.fontWeight} ${layer.fontSize}px ${layer.fontFamily}`;
                 ctx.fillStyle = layer.color;
                 ctx.textBaseline = 'top';
-                // Basic text wrapping
+                
+                // Text wrapping logic
                 const words = layer.text.split(' ');
                 let line = '';
                 let textY = layer.y;
@@ -66,7 +67,7 @@ export const useScreenRecorder = () => {
                     if (testWidth > layer.width && n > 0) {
                         ctx.fillText(line, layer.x, textY);
                         line = words[n] + ' ';
-                        textY += parseInt(layer.font, 10) * 1.2;
+                        textY += layer.fontSize * 1.2;
                     } else {
                         line = testLine;
                     }
@@ -75,13 +76,11 @@ export const useScreenRecorder = () => {
             }
             ctx.restore();
 
-            // Draw selection handles if selected
             if (layer.id === selectedLayerId) {
                 ctx.strokeStyle = '#4f46e5';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(layer.x, layer.y, layer.width, layer.height);
 
-                // Handles
                 ctx.fillStyle = '#4f46e5';
                 ctx.fillRect(layer.x - HANDLE_SIZE / 2, layer.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE); // tl
                 ctx.fillRect(layer.x + layer.width - HANDLE_SIZE / 2, layer.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE); // tr
@@ -95,14 +94,18 @@ export const useScreenRecorder = () => {
 
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (canvas) {
-            // Set canvas resolution
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width;
-            canvas.height = rect.height;
-        }
+        const resizeCanvas = () => {
+             if (canvas && canvas.parentElement) {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+            }
+        };
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
         animationFrameRef.current = requestAnimationFrame(renderCanvas);
         return () => {
+            window.removeEventListener('resize', resizeCanvas);
             if (animationFrameRef.current) {
                 cancelAnimationFrame(animationFrameRef.current);
             }
@@ -122,15 +125,51 @@ export const useScreenRecorder = () => {
         setStatus('idle');
         setSelectedLayerId(null);
     }, [layers]);
-
+    
     const addLayer = (layer: CanvasLayer) => {
         setLayers(prev => [...prev, layer]);
-        setStatus('session');
+        setSelectedLayerId(layer.id);
+        if(status === 'idle') setStatus('session');
+    };
+
+    const updateLayer = (layerId: string, updates: Partial<CanvasLayer>) => {
+        setLayers(prev => prev.map(l => l.id === layerId ? { ...l, ...updates } : l));
+    };
+
+    const removeLayer = (layerId: string) => {
+        setLayers(prev => {
+            const newLayers = prev.filter(l => l.id !== layerId);
+            if (newLayers.length === 0) {
+                stopSession();
+            }
+            return newLayers;
+        });
+        if (selectedLayerId === layerId) {
+            setSelectedLayerId(null);
+        }
+    };
+
+    const moveLayer = (layerId: string, direction: 'up' | 'down') => {
+        setLayers(prev => {
+            const index = prev.findIndex(l => l.id === layerId);
+            if (index === -1) return prev;
+            
+            const newLayers = [...prev];
+            const [layer] = newLayers.splice(index, 1);
+            
+            if (direction === 'up') {
+                const newIndex = Math.min(index + 1, newLayers.length);
+                newLayers.splice(newIndex, 0, layer);
+            } else {
+                const newIndex = Math.max(index - 1, 0);
+                newLayers.splice(newIndex, 0, layer);
+            }
+            return newLayers;
+        });
     };
     
     const startScreenLayer = async () => {
         try {
-            // FIX: The 'cursor' property is valid for getDisplayMedia but not in the standard MediaTrackConstraints type. Cast to 'any' to bypass the type error.
             const stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'always' } as any, audio: true });
             const videoElement = document.createElement('video');
             videoElement.srcObject = stream;
@@ -226,16 +265,15 @@ export const useScreenRecorder = () => {
         const text = prompt("Enter text for the graphic overlay:");
         if (text) {
              addLayer({
-                id: `text-${Date.now()}`, type: 'text', text, x: 200, y: 200, width: 300, height: 100, visible: true, font: 'bold 48px Arial', color: 'white',
+                id: `text-${Date.now()}`, type: 'text', text, x: 200, y: 200, width: 300, height: 100, visible: true, 
+                fontSize: 48, fontFamily: 'Arial', fontWeight: 'bold', color: '#FFFFFF',
             });
         }
     };
     
-    // FIX: Add an explicit return type to ensure TypeScript correctly infers the 'handle' property as a literal union type, not a generic string.
     const getLayerAndHandleAt = (x: number, y: number): { layer: CanvasLayer | null, handle: ActionState['handle'] } => {
         for (const layer of [...layers].reverse()) {
              if (layer.id === selectedLayerId) {
-                // Check handles first
                 const hx = layer.x - HANDLE_SIZE / 2;
                 const hy = layer.y - HANDLE_SIZE / 2;
                 const hx2 = layer.x + layer.width - HANDLE_SIZE / 2;
@@ -245,7 +283,6 @@ export const useScreenRecorder = () => {
                 if (x > hx && x < hx + HANDLE_SIZE && y > hy2 && y < hy2 + HANDLE_SIZE) return { layer, handle: 'bl' };
                 if (x > hx2 && x < hx2 + HANDLE_SIZE && y > hy2 && y < hy2 + HANDLE_SIZE) return { layer, handle: 'br' };
              }
-             // Check body
              if (x > layer.x && x < layer.x + layer.width && y > layer.y && y < layer.y + layer.height) {
                  return { layer, handle: 'body' };
              }
@@ -271,7 +308,7 @@ export const useScreenRecorder = () => {
         const { offsetX, offsetY } = e.nativeEvent;
         const { action, layerId, handle, offsetX: startOffsetX, offsetY: startOffsetY } = actionStateRef.current;
         
-        if (action && layerId) { // We are dragging/resizing
+        if (action && layerId) {
             setLayers(prev => prev.map(l => {
                 if (l.id === layerId) {
                     const newLayer = { ...l };
@@ -292,7 +329,7 @@ export const useScreenRecorder = () => {
                 }
                 return l;
             }));
-        } else { // Just hovering
+        } else {
             const { handle } = getLayerAndHandleAt(offsetX, offsetY);
             if (handle === 'body') setCursorStyle('move');
             else if (handle === 'tl' || handle === 'br') setCursorStyle('nwse-resize');
@@ -311,7 +348,8 @@ export const useScreenRecorder = () => {
     };
 
     return {
-        status, canvasRef, error, startScreenLayer, startWebcamLayer, startRecording, stopSession, addMediaOverlay, addGraphicOverlay,
-        handleMouseDown, handleMouseMove, handleMouseUp, handleMouseLeave, cursorStyle
+        status, canvasRef, error, layers, selectedLayerId, setSelectedLayerId, startScreenLayer, startWebcamLayer, startRecording, stopSession, addMediaOverlay, addGraphicOverlay,
+        handleMouseDown, handleMouseMove, handleMouseUp, handleMouseLeave, cursorStyle,
+        updateLayer, removeLayer, moveLayer
     };
 };

@@ -11,6 +11,9 @@ const App: React.FC = () => {
     status,
     error,
     stream,
+    videoUrl,
+    startRecording,
+    stopRecording,
     startStreaming,
     stopStreaming,
     reset,
@@ -27,13 +30,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDownload = () => {
+    if (videoUrl) {
+      const a = document.createElement('a');
+      a.href = videoUrl;
+      a.download = `recording-${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 bg-gray-950">
       <div className="w-full max-w-4xl mx-auto">
         <Header />
         <main className="mt-8 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
           <div className="p-4 sm:p-6">
-            <VideoPlayer stream={stream} />
+            <VideoPlayer stream={stream} videoUrl={videoUrl} />
           </div>
 
           {status === AppStatus.Streaming && (
@@ -71,14 +85,17 @@ const App: React.FC = () => {
             )}
             <Controls
               status={status}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
               onStartStreaming={startStreaming}
               onStopStreaming={stopStreaming}
+              onDownload={handleDownload}
               onReset={reset}
             />
           </div>
         </main>
         <footer className="text-center mt-8 text-gray-500 text-sm">
-            <p>Your stream is processed locally in your browser and sent to the server.</p>
+            <p>Your screen is processed locally in your browser. Streams are sent to a server; recordings are not.</p>
         </footer>
       </div>
     </div>

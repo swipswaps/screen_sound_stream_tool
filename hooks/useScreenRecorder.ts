@@ -1,16 +1,17 @@
 import { useState, useRef, useCallback } from 'react';
 import { AppStatus } from '../types';
 
-// The streaming functionality requires a WebSocket server running on this address.
 const WEBSOCKET_URL = 'ws://localhost:8080';
 
 export const useScreenRecorder = () => {
     const [status, setStatus] = useState<AppStatus>(AppStatus.Idle);
     const [error, setError] = useState<string | null>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
+    const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
+    const recordedChunks = useRef<Blob[]>([]);
 
     const cleanup = useCallback(() => {
         if (stream) {
@@ -22,20 +23,25 @@ export const useScreenRecorder = () => {
         if (socketRef.current && socketRef.current.readyState < 2) {
             socketRef.current.close();
         }
+        if (videoUrl) {
+            URL.revokeObjectURL(videoUrl);
+        }
         
         setStream(null);
+        setVideoUrl(null);
         mediaRecorderRef.current = null;
         socketRef.current = null;
-    }, [stream]);
+        recordedChunks.current = [];
+    }, [stream, videoUrl]);
 
     const stopAction = useCallback(() => {
-        if (status === AppStatus.Streaming) {
-            mediaRecorderRef.current?.stop();
+        if (mediaRecorderRef.current && (status === AppStatus.Streaming || status === AppStatus.Recording)) {
+            mediaRecorderRef.current.stop();
         }
     }, [status]);
 
     const getMediaStream = useCallback(async () => {
-        reset(); // Cleanup previous state before starting
+        reset(); 
 
         try {
             const displayStream = await navigator.mediaDevices.getDisplayMedia({
@@ -62,7 +68,6 @@ export const useScreenRecorder = () => {
             setStream(combinedStream);
             
             videoTrack.onended = () => {
-                // User clicked "Stop sharing" in browser UI
                 stopAction();
             };
             
@@ -82,6 +87,40 @@ export const useScreenRecorder = () => {
             return null;
         }
     }, [stopAction]);
+
+    const startRecording = useCallback(async () => {
+        const combinedStream = await getMediaStream();
+        if (!combinedStream) return;
+
+        setStatus(AppStatus.Recording);
+        recordedChunks.current = [];
+
+        mediaRecorderRef.current = new MediaRecorder(combinedStream, {
+            mimeType: 'video/webm; codecs=vp8,opus'
+        });
+
+        mediaRecorderRef.current.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.current.push(event.data);
+            }
+        };
+
+        mediaRecorderRef.current.onstop = () => {
+            const blob = new Blob(recordedChunks.current, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            setVideoUrl(url);
+            setStatus(AppStatus.Stopped);
+            // Don't cleanup stream tracks yet, so the last frame is visible
+        };
+        
+        mediaRecorderRef.current.start();
+    }, [getMediaStream]);
+
+    const stopRecording = useCallback(() => {
+        if (mediaRecorderRef.current && status === AppStatus.Recording) {
+            mediaRecorderRef.current.stop();
+        }
+    }, [status]);
 
 
     const startStreaming = useCallback(async () => {
@@ -150,7 +189,8 @@ export const useScreenRecorder = () => {
     }, [cleanup]);
 
     return {
-        status, error, stream,
+        status, error, stream, videoUrl,
+        startRecording, stopRecording,
         startStreaming, stopStreaming,
         reset, sendMessage,
     };

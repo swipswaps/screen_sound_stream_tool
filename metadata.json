@@ -1,6 +1,6 @@
 {
-  "name": "Screen Streamer",
-  "description": "A web application to stream your screen and microphone audio simultaneously over a WebSocket connection.",
+  "name": "Screen Recorder & Streamer",
+  "description": "A web application to record or stream your screen and microphone audio. Recordings can be downloaded, and streams are sent over a WebSocket connection.",
   "requestFramePermissions": [
     "microphone"
   ]

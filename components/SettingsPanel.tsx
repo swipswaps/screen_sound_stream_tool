@@ -1,5 +1,5 @@
 import React from 'react';
-import { CanvasLayer, TextLayer, VideoLayer } from '../types';
+import { CanvasLayer, TextLayer, VideoLayer, ImageLayer } from '../types';
 import { ScreenIcon, WebcamIcon, MediaIcon, GraphicIcon } from './icons';
 
 interface SettingsPanelProps {
@@ -35,6 +35,7 @@ const commonInputClass = "w-full bg-gray-900 border border-gray-700 rounded-md p
 const CommonLayerEditor: React.FC<{ layer: CanvasLayer, onUpdate: (updates: Partial<CanvasLayer>) => void }> = ({ layer, onUpdate }) => {
     return (
         <div className="space-y-4">
+            <h4 className="text-md font-semibold text-gray-300">Transform</h4>
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <label className="text-xs text-gray-400 block mb-1">X</label>
@@ -60,6 +61,28 @@ const CommonLayerEditor: React.FC<{ layer: CanvasLayer, onUpdate: (updates: Part
         </div>
     )
 }
+
+const AppearanceEditor: React.FC<{ layer: VideoLayer | ImageLayer, onUpdate: (updates: Partial<VideoLayer | ImageLayer>) => void }> = ({ layer, onUpdate }) => {
+    return (
+        <div className="space-y-4">
+            <h4 className="text-md font-semibold text-gray-300">Appearance</h4>
+            <div>
+                <label className="text-xs text-gray-400 block mb-1">Corner Radius ({layer.cornerRadius ?? 0}px)</label>
+                <input type="range" min="0" max={Math.min(layer.width, layer.height) / 2} step="1" value={layer.cornerRadius ?? 0} onChange={(e) => onUpdate({ cornerRadius: parseInt(e.target.value, 10) })} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <label className="text-xs text-gray-400 block mb-1">Border Width</label>
+                    <input type="number" min="0" value={layer.borderWidth ?? 0} onChange={(e) => onUpdate({ borderWidth: parseInt(e.target.value, 10) || 0 })} className={commonInputClass} />
+                </div>
+                <div>
+                    <label className="text-xs text-gray-400 block mb-1">Border Color</label>
+                    <input type="color" value={layer.borderColor ?? '#000000'} onChange={(e) => onUpdate({ borderColor: e.target.value })} className="w-full h-10 p-1 bg-gray-900 border border-gray-700 rounded-md cursor-pointer"/>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const VideoLayerEditor: React.FC<{ layer: VideoLayer, onUpdate: (updates: Partial<VideoLayer>) => void }> = ({ layer, onUpdate }) => {
     if (layer.sourceType !== 'webcam') {
@@ -160,6 +183,34 @@ const TextLayerEditor: React.FC<{ layer: TextLayer, onUpdate: (updates: Partial<
                      </select>
                  </div>
              </div>
+             <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <label className="text-xs text-gray-400 block mb-1">Horiz. Align</label>
+                    <select value={layer.textAlign ?? 'left'} onChange={e => onUpdate({ textAlign: e.target.value as TextLayer['textAlign'] })} className={commonInputClass}>
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="text-xs text-gray-400 block mb-1">Vert. Align</label>
+                    <select value={layer.verticalAlign ?? 'top'} onChange={e => onUpdate({ verticalAlign: e.target.value as TextLayer['verticalAlign'] })} className={commonInputClass}>
+                        <option value="top">Top</option>
+                        <option value="middle">Middle</option>
+                        <option value="bottom">Bottom</option>
+                    </select>
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <label className="text-xs text-gray-400 block mb-1">Padding</label>
+                    <input type="number" min="0" value={layer.padding ?? 0} onChange={(e) => onUpdate({ padding: parseInt(e.target.value, 10) || 0 })} className={commonInputClass} />
+                </div>
+                <div>
+                    <label className="text-xs text-gray-400 block mb-1">Bg Color</label>
+                    <input type="color" value={layer.backgroundColor ?? '#000000'} onChange={(e) => onUpdate({ backgroundColor: e.target.value })} className="w-full h-10 p-1 bg-gray-900 border border-gray-700 rounded-md cursor-pointer"/>
+                </div>
+            </div>
         </div>
     );
 }
@@ -195,9 +246,15 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ layers, selectedLayerId, 
                 <h3 className="text-lg font-semibold mb-4">Edit: {getLayerName(selectedLayer)}</h3>
                 <div className="space-y-6">
                     <CommonLayerEditor layer={selectedLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
+                    
+                    {(selectedLayer.type === 'video' || selectedLayer.type === 'image') && (
+                        <AppearanceEditor layer={selectedLayer as VideoLayer | ImageLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
+                    )}
+
                     {selectedLayer.type === 'video' && (
                         <VideoLayerEditor layer={selectedLayer as VideoLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
                     )}
+
                     {selectedLayer.type === 'text' && (
                         <TextLayerEditor layer={selectedLayer as TextLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
                     )}

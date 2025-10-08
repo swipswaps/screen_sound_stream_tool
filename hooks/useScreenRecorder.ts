@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, MouseEvent } from 'react';
-import { RecordingStatus, CanvasLayer, VideoLayer, TextLayer } from '../types';
+import { RecordingStatus, CanvasLayer, VideoLayer, TextLayer, ImageLayer } from '../types';
 
 type ActionState = {
   action: 'move' | 'resize' | null;
@@ -62,6 +62,19 @@ export const useScreenRecorder = () => {
             ctx.save();
             ctx.globalAlpha = layer.opacity;
 
+            // Handle Rounded Corners and Clipping for Video/Image
+            if ((layer.type === 'video' || layer.type === 'image') && layer.cornerRadius && layer.cornerRadius > 0) {
+                 const cornerRadius = Math.min(layer.cornerRadius, layer.width / 2, layer.height / 2);
+                 ctx.beginPath();
+                 ctx.moveTo(layer.x + cornerRadius, layer.y);
+                 ctx.arcTo(layer.x + layer.width, layer.y, layer.x + layer.width, layer.y + layer.height, cornerRadius);
+                 ctx.arcTo(layer.x + layer.width, layer.y + layer.height, layer.x, layer.y + layer.height, cornerRadius);
+                 ctx.arcTo(layer.x, layer.y + layer.height, layer.x, layer.y, cornerRadius);
+                 ctx.arcTo(layer.x, layer.y, layer.x + layer.width, layer.y, cornerRadius);
+                 ctx.closePath();
+                 ctx.clip();
+            }
+
             if (layer.type === 'video' && layer.sourceType === 'webcam' && layer.chromaKeyEnabled && layer.chromaKeyColor) {
                  if (!offscreenCanvasRef.current) {
                     offscreenCanvasRef.current = document.createElement('canvas');
@@ -70,13 +83,13 @@ export const useScreenRecorder = () => {
                 const offscreenCtx = offscreenCanvas.getContext('2d');
 
                 if (offscreenCtx) {
-                    if (offscreenCanvas.width !== layer.width || offscreenCanvas.height !== layer.height) {
-                        offscreenCanvas.width = layer.width;
-                        offscreenCanvas.height = layer.height;
+                    if (offscreenCanvas.width !== layer.element.videoWidth || offscreenCanvas.height !== layer.element.videoHeight) {
+                        offscreenCanvas.width = layer.element.videoWidth;
+                        offscreenCanvas.height = layer.element.videoHeight;
                     }
                     
-                    offscreenCtx.drawImage(layer.element, 0, 0, layer.width, layer.height);
-                    const imageData = offscreenCtx.getImageData(0, 0, layer.width, layer.height);
+                    offscreenCtx.drawImage(layer.element, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+                    const imageData = offscreenCtx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
                     const data = imageData.data;
                     const keyRgb = hexToRgb(layer.chromaKeyColor);
 
@@ -102,29 +115,87 @@ export const useScreenRecorder = () => {
             } else if (layer.type === 'video' || layer.type === 'image') {
                 ctx.drawImage(layer.element, layer.x, layer.y, layer.width, layer.height);
             } else if (layer.type === 'text') {
+                // Background
+                if (layer.backgroundColor && layer.backgroundColor !== '#000000' && layer.backgroundColor !== 'transparent') {
+                    ctx.fillStyle = layer.backgroundColor;
+                    ctx.fillRect(layer.x, layer.y, layer.width, layer.height);
+                }
+
                 ctx.font = `${layer.fontWeight} ${layer.fontSize}px ${layer.fontFamily}`;
                 ctx.fillStyle = layer.color;
-                ctx.textBaseline = 'top';
                 
-                // Text wrapping logic
+                // Text wrapping and alignment logic
+                const padding = layer.padding ?? 0;
+                const contentWidth = layer.width - padding * 2;
+                
                 const words = layer.text.split(' ');
                 let line = '';
-                let textY = layer.y;
-                for (let n = 0; n < words.length; n++) {
-                    const testLine = line + words[n] + ' ';
-                    const metrics = ctx.measureText(testLine);
-                    const testWidth = metrics.width;
-                    if (testWidth > layer.width && n > 0) {
-                        ctx.fillText(line, layer.x, textY);
-                        line = words[n] + ' ';
-                        textY += layer.fontSize * 1.2;
+                const lines: string[] = [];
+                for (const word of words) {
+                    const testLine = line ? `${line} ${word}` : word;
+                    if (ctx.measureText(testLine).width > contentWidth && line) {
+                        lines.push(line);
+                        line = word;
                     } else {
                         line = testLine;
                     }
                 }
-                ctx.fillText(line, layer.x, textY);
+                if (line) lines.push(line);
+
+                const lineHeight = layer.fontSize * 1.2;
+                const totalTextHeight = (lines.length * lineHeight) - (lineHeight - layer.fontSize);
+
+                let startY: number;
+                if (layer.verticalAlign === 'middle') {
+                    startY = layer.y + (layer.height - totalTextHeight) / 2;
+                } else if (layer.verticalAlign === 'bottom') {
+                    startY = layer.y + layer.height - totalTextHeight - padding;
+                } else { // top
+                    startY = layer.y + padding;
+                }
+
+                ctx.textBaseline = 'top';
+                ctx.textAlign = layer.textAlign ?? 'left';
+
+                lines.forEach((line, index) => {
+                    let textX: number;
+                     if (layer.textAlign === 'center') {
+                        textX = layer.x + layer.width / 2;
+                    } else if (layer.textAlign === 'right') {
+                        textX = layer.x + layer.width - padding;
+                    } else { // left
+                        textX = layer.x + padding;
+                    }
+                    ctx.fillText(line, textX, startY + (index * lineHeight));
+                });
             }
-            ctx.restore();
+            ctx.restore(); // This restore is important to remove clipping for the next layer
+
+            // Handle borders for Video/Image (drawn on top)
+            if ((layer.type === 'video' || layer.type === 'image') && layer.borderWidth && layer.borderWidth > 0) {
+                const borderWidth = layer.borderWidth;
+                const cornerRadius = Math.min(layer.cornerRadius ?? 0, (layer.width - borderWidth) / 2, (layer.height - borderWidth) / 2);
+
+                ctx.save();
+                ctx.lineWidth = borderWidth;
+                ctx.strokeStyle = layer.borderColor ?? '#000000';
+                
+                const x = layer.x + borderWidth / 2;
+                const y = layer.y + borderWidth / 2;
+                const w = layer.width - borderWidth;
+                const h = layer.height - borderWidth;
+                
+                ctx.beginPath();
+                ctx.moveTo(x + cornerRadius, y);
+                ctx.arcTo(x + w, y, x + w, y + h, cornerRadius);
+                ctx.arcTo(x + w, y + h, x, y + h, cornerRadius);
+                ctx.arcTo(x, y + h, x, y, cornerRadius);
+                ctx.arcTo(x, y, x + w, y, cornerRadius);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.restore();
+            }
+
 
             if (layer.id === selectedLayerId) {
                 ctx.strokeStyle = '#4f46e5';
@@ -229,9 +300,13 @@ export const useScreenRecorder = () => {
             const track = stream.getVideoTracks()[0];
             const { width, height } = track.getSettings();
 
-            addLayer({
+            const newLayer: VideoLayer = {
                 id: `screen-${Date.now()}`, type: 'video', stream, element: videoElement, x: 50, y: 50, width: width ? width / 2 : 640, height: height ? height / 2 : 360, visible: true, sourceType: 'screen', opacity: 1,
-            });
+                cornerRadius: 0,
+                borderWidth: 0,
+                borderColor: '#000000',
+            };
+            addLayer(newLayer);
         } catch (err) {
             setError(new Error('Could not start screen sharing.'));
         }
@@ -248,13 +323,17 @@ export const useScreenRecorder = () => {
             const track = stream.getVideoTracks()[0];
             const { width, height } = track.getSettings();
 
-            addLayer({
+            const newLayer: VideoLayer = {
                 id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam', opacity: 1,
                 chromaKeyEnabled: false,
                 chromaKeyColor: '#00ff00',
                 chromaKeySimilarity: 0.2,
                 chromaKeySmoothness: 0.05,
-            });
+                cornerRadius: 0,
+                borderWidth: 0,
+                borderColor: '#000000',
+            };
+            addLayer(newLayer);
         } catch (err) {
             setError(new Error('Could not start webcam.'));
         }
@@ -318,9 +397,13 @@ export const useScreenRecorder = () => {
                     const img = document.createElement('img');
                     img.src = event.target?.result as string;
                     img.onload = () => {
-                         addLayer({
+                        const newLayer: ImageLayer = {
                             id: `image-${Date.now()}`, type: 'image', element: img, x: 150, y: 150, width: img.width / 2, height: img.height / 2, visible: true, opacity: 1,
-                        });
+                            cornerRadius: 0,
+                            borderWidth: 0,
+                            borderColor: '#000000',
+                        };
+                         addLayer(newLayer);
                     }
                 }
                 reader.readAsDataURL(file);
@@ -330,10 +413,15 @@ export const useScreenRecorder = () => {
     };
 
     const addGraphicOverlay = () => {
-        addLayer({
+        const newLayer: TextLayer = {
             id: `text-${Date.now()}`, type: 'text', text: 'Your Text Here', x: 200, y: 200, width: 300, height: 100, visible: true, 
             fontSize: 48, fontFamily: 'Arial', fontWeight: 'bold', color: '#FFFFFF', opacity: 1,
-        });
+            textAlign: 'left',
+            verticalAlign: 'top',
+            backgroundColor: 'transparent',
+            padding: 10,
+        };
+        addLayer(newLayer);
     };
     
     const getLayerAndHandleAt = (x: number, y: number): { layer: CanvasLayer | null, handle: ActionState['handle'] } => {

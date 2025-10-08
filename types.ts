@@ -20,11 +20,17 @@ export interface VideoLayer extends Layer {
   chromaKeyColor?: string;
   chromaKeySimilarity?: number;
   chromaKeySmoothness?: number;
+  cornerRadius?: number;
+  borderColor?: string;
+  borderWidth?: number;
 }
 
 export interface ImageLayer extends Layer {
   type: 'image';
   element: HTMLImageElement;
+  cornerRadius?: number;
+  borderColor?: string;
+  borderWidth?: number;
 }
 
 export interface TextLayer extends Layer {
@@ -34,6 +40,10 @@ export interface TextLayer extends Layer {
   fontFamily: string;
   fontWeight: string;
   color: string;
+  textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  backgroundColor?: string;
+  padding?: number;
 }
 
 export type CanvasLayer = VideoLayer | ImageLayer | TextLayer;

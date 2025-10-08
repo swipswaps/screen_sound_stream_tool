@@ -1,7 +1,8 @@
 {
-  "name": "Screen Recorder & Streamer",
-  "description": "A web application to record or stream your screen and microphone audio. Recordings can be downloaded, and streams are sent over a WebSocket connection.",
+  "name": "Stream Studio",
+  "description": "A web application to record or stream your screen, webcam, and microphone audio. Based on the swipswaps/screen_streaming_tool design.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera"
   ]
 }

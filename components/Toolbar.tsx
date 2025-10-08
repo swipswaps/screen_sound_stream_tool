@@ -16,7 +16,7 @@ interface ToolbarProps {
 
 // FIX: Define a props interface for ToolbarButton to fix incorrect 'children' prop missing error.
 interface ToolbarButtonProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   className?: string;

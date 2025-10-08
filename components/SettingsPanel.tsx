@@ -1,5 +1,5 @@
 import React from 'react';
-import { CanvasLayer, TextLayer } from '../types';
+import { CanvasLayer, TextLayer, VideoLayer } from '../types';
 import { ScreenIcon, WebcamIcon, MediaIcon, GraphicIcon } from './icons';
 
 interface SettingsPanelProps {
@@ -61,6 +61,50 @@ const CommonLayerEditor: React.FC<{ layer: CanvasLayer, onUpdate: (updates: Part
     )
 }
 
+const VideoLayerEditor: React.FC<{ layer: VideoLayer, onUpdate: (updates: Partial<VideoLayer>) => void }> = ({ layer, onUpdate }) => {
+    if (layer.sourceType !== 'webcam') {
+        return null;
+    }
+
+    return (
+        <div className="space-y-4">
+            <h4 className="text-md font-semibold text-gray-300">Chroma Key</h4>
+            <div className="flex items-center justify-between">
+                <label htmlFor="chroma-toggle" className="text-sm text-gray-300">Enable</label>
+                <button
+                    role="switch"
+                    aria-checked={layer.chromaKeyEnabled}
+                    id="chroma-toggle"
+                    onClick={() => onUpdate({ chromaKeyEnabled: !layer.chromaKeyEnabled })}
+                    className={`${layer.chromaKeyEnabled ? 'bg-brand-primary' : 'bg-gray-700'} relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-gray-900`}
+                >
+                    <span className={`${layer.chromaKeyEnabled ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} />
+                </button>
+            </div>
+            {layer.chromaKeyEnabled && (
+                <div className="space-y-4 pl-4 border-l-2 border-gray-700">
+                    <div className="flex items-center space-x-4">
+                         <label className="text-sm text-gray-400">Key Color</label>
+                         <input
+                            type="color"
+                            value={layer.chromaKeyColor}
+                            onChange={(e) => onUpdate({ chromaKeyColor: e.target.value })}
+                            className="w-10 h-10 p-0 border-0 bg-transparent rounded-md cursor-pointer"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-400 block mb-1">Similarity ({Math.round((layer.chromaKeySimilarity ?? 0) * 100)})</label>
+                        <input type="range" min="0" max="1" step="0.01" value={layer.chromaKeySimilarity} onChange={(e) => onUpdate({ chromaKeySimilarity: parseFloat(e.target.value) })} className="w-full" />
+                    </div>
+                     <div>
+                        <label className="text-xs text-gray-400 block mb-1">Smoothness ({Math.round((layer.chromaKeySmoothness ?? 0) * 100)})</label>
+                        <input type="range" min="0" max="1" step="0.01" value={layer.chromaKeySmoothness} onChange={(e) => onUpdate({ chromaKeySmoothness: parseFloat(e.target.value) })} className="w-full" />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 const TextLayerEditor: React.FC<{ layer: TextLayer, onUpdate: (updates: Partial<TextLayer>) => void }> = ({ layer, onUpdate }) => {
     return (
@@ -151,6 +195,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ layers, selectedLayerId, 
                 <h3 className="text-lg font-semibold mb-4">Edit: {getLayerName(selectedLayer)}</h3>
                 <div className="space-y-6">
                     <CommonLayerEditor layer={selectedLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
+                    {selectedLayer.type === 'video' && (
+                        <VideoLayerEditor layer={selectedLayer as VideoLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
+                    )}
                     {selectedLayer.type === 'text' && (
                         <TextLayerEditor layer={selectedLayer as TextLayer} onUpdate={(updates) => onUpdateLayer(selectedLayer.id, updates)} />
                     )}

@@ -16,6 +16,10 @@ export interface VideoLayer extends Layer {
   stream: MediaStream;
   element: HTMLVideoElement;
   sourceType: 'screen' | 'webcam';
+  chromaKeyEnabled?: boolean;
+  chromaKeyColor?: string;
+  chromaKeySimilarity?: number;
+  chromaKeySmoothness?: number;
 }
 
 export interface ImageLayer extends Layer {

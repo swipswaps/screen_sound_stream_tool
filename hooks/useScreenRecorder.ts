@@ -12,6 +12,15 @@ type ActionState = {
 
 const HANDLE_SIZE = 10;
 
+const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
+};
+
 export const useScreenRecorder = () => {
     const [status, setStatus] = useState<RecordingStatus>('idle');
     const [error, setError] = useState<Error | null>(null);
@@ -24,6 +33,7 @@ export const useScreenRecorder = () => {
     const recordedChunksRef = useRef<Blob[]>([]);
     const animationFrameRef = useRef<number>();
     const actionStateRef = useRef<ActionState>({ action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0, aspectRatio: 0 });
+    const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
     const getMixedAudioStream = useCallback(() => {
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -51,7 +61,45 @@ export const useScreenRecorder = () => {
             if (!layer.visible) return;
             ctx.save();
             ctx.globalAlpha = layer.opacity;
-            if (layer.type === 'video' || layer.type === 'image') {
+
+            if (layer.type === 'video' && layer.sourceType === 'webcam' && layer.chromaKeyEnabled && layer.chromaKeyColor) {
+                 if (!offscreenCanvasRef.current) {
+                    offscreenCanvasRef.current = document.createElement('canvas');
+                }
+                const offscreenCanvas = offscreenCanvasRef.current;
+                const offscreenCtx = offscreenCanvas.getContext('2d');
+
+                if (offscreenCtx) {
+                    if (offscreenCanvas.width !== layer.width || offscreenCanvas.height !== layer.height) {
+                        offscreenCanvas.width = layer.width;
+                        offscreenCanvas.height = layer.height;
+                    }
+                    
+                    offscreenCtx.drawImage(layer.element, 0, 0, layer.width, layer.height);
+                    const imageData = offscreenCtx.getImageData(0, 0, layer.width, layer.height);
+                    const data = imageData.data;
+                    const keyRgb = hexToRgb(layer.chromaKeyColor);
+
+                    const similarity = (layer.chromaKeySimilarity ?? 0) * 255 * 1.5;
+                    const smoothness = (layer.chromaKeySmoothness ?? 0) * 255;
+
+                    for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i];
+                        const g = data[i + 1];
+                        const b = data[i + 2];
+                        const distance = Math.sqrt(Math.pow(r - keyRgb.r, 2) + Math.pow(g - keyRgb.g, 2) + Math.pow(b - keyRgb.b, 2));
+                        
+                        if (distance < similarity) {
+                            data[i + 3] = 0;
+                        } else if (distance < similarity + smoothness) {
+                            const alpha = (distance - similarity) / smoothness;
+                            data[i + 3] *= alpha;
+                        }
+                    }
+                    offscreenCtx.putImageData(imageData, 0, 0);
+                    ctx.drawImage(offscreenCanvas, layer.x, layer.y, layer.width, layer.height);
+                }
+            } else if (layer.type === 'video' || layer.type === 'image') {
                 ctx.drawImage(layer.element, layer.x, layer.y, layer.width, layer.height);
             } else if (layer.type === 'text') {
                 ctx.font = `${layer.fontWeight} ${layer.fontSize}px ${layer.fontFamily}`;
@@ -202,6 +250,10 @@ export const useScreenRecorder = () => {
 
             addLayer({
                 id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam', opacity: 1,
+                chromaKeyEnabled: false,
+                chromaKeyColor: '#00ff00',
+                chromaKeySimilarity: 0.2,
+                chromaKeySmoothness: 0.05,
             });
         } catch (err) {
             setError(new Error('Could not start webcam.'));

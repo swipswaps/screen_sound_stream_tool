@@ -1,37 +1,57 @@
-
 import { useState, useRef, useCallback } from 'react';
-import { RecordingStatus } from '../types';
+import { AppStatus } from '../types';
+
+// The streaming functionality requires a WebSocket server running on this address.
+const WEBSOCKET_URL = 'ws://localhost:8080';
 
 export const useScreenRecorder = () => {
-    const [status, setStatus] = useState<RecordingStatus>(RecordingStatus.Idle);
+    const [status, setStatus] = useState<AppStatus>(AppStatus.Idle);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const socketRef = useRef<WebSocket | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
 
-    const startRecording = useCallback(async () => {
-        setStatus(RecordingStatus.Idle);
-        setVideoUrl(null);
-        setError(null);
+    const cleanup = useCallback(() => {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+        }
+        if (socketRef.current && socketRef.current.readyState < 2) {
+            socketRef.current.close();
+        }
+        
         setStream(null);
+        mediaRecorderRef.current = null;
+        socketRef.current = null;
         recordedChunksRef.current = [];
+    }, [stream]);
+
+    const stopAction = useCallback(() => {
+        if (status === AppStatus.Recording) {
+            mediaRecorderRef.current?.stop();
+        } else if (status === AppStatus.Streaming) {
+            mediaRecorderRef.current?.stop();
+        }
+    }, [status]);
+
+    const getMediaStream = useCallback(async () => {
+        reset(); // Cleanup previous state before starting
 
         try {
             const displayStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { cursor: 'always' } as any,
-                audio: true, // Attempt to capture system/tab audio
+                audio: true,
             });
 
             let audioStream: MediaStream | null = null;
             try {
                 audioStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 44100,
-                    },
+                    audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 },
                 });
             } catch (micError) {
                 console.warn("Could not get microphone audio stream.", micError);
@@ -42,46 +62,20 @@ export const useScreenRecorder = () => {
                 ...(displayStream.getAudioTracks()),
                 ...(audioStream ? audioStream.getAudioTracks() : []),
             ];
-
-            if (audioTracks.length === 0) {
-                console.warn("No audio tracks available. Recording will be video-only.");
-            }
-            
-            setStatus(RecordingStatus.Recording);
             
             const combinedStream = new MediaStream([videoTrack, ...audioTracks]);
             setStream(combinedStream);
-
+            
             videoTrack.onended = () => {
                 // User clicked "Stop sharing" in browser UI
-                stopRecording();
+                stopAction();
             };
-
-            mediaRecorderRef.current = new MediaRecorder(combinedStream, {
-                mimeType: 'video/webm; codecs=vp8,opus'
-            });
-
-            mediaRecorderRef.current.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    recordedChunksRef.current.push(event.data);
-                }
-            };
-
-            mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-                const url = URL.createObjectURL(blob);
-                setVideoUrl(url);
-                setStatus(RecordingStatus.Stopped);
-                setStream(null);
-                combinedStream.getTracks().forEach(track => track.stop());
-            };
-
-            mediaRecorderRef.current.start();
-
+            
+            return combinedStream;
         } catch (err) {
-            console.error("Error starting recording:", err);
-            let message = 'An unknown error occurred.';
-            if (err instanceof Error) {
+            console.error("Error getting media stream:", err);
+            let message = 'An unknown error occurred while accessing media devices.';
+             if (err instanceof Error) {
                 if (err.name === 'NotAllowedError') {
                     message = 'Permission to access screen or microphone was denied. Please allow access and try again.';
                 } else {
@@ -89,15 +83,103 @@ export const useScreenRecorder = () => {
                 }
             }
             setError(message);
-            setStatus(RecordingStatus.Error);
+            setStatus(AppStatus.Error);
+            return null;
         }
-    }, []);
+    }, [stopAction]);
+
+    const startRecording = useCallback(async () => {
+        const combinedStream = await getMediaStream();
+        if (!combinedStream) return;
+
+        setStatus(AppStatus.Recording);
+
+        mediaRecorderRef.current = new MediaRecorder(combinedStream, {
+            mimeType: 'video/webm; codecs=vp8,opus'
+        });
+
+        mediaRecorderRef.current.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunksRef.current.push(event.data);
+            }
+        };
+
+        mediaRecorderRef.current.onstop = () => {
+            const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            setVideoUrl(url);
+            setStatus(AppStatus.Stopped);
+            cleanup();
+        };
+
+        mediaRecorderRef.current.start();
+    }, [getMediaStream, cleanup]);
 
     const stopRecording = useCallback(() => {
-        if (mediaRecorderRef.current && status === RecordingStatus.Recording) {
+        if (mediaRecorderRef.current && status === AppStatus.Recording) {
             mediaRecorderRef.current.stop();
         }
     }, [status]);
+
+    const startStreaming = useCallback(async () => {
+        const combinedStream = await getMediaStream();
+        if (!combinedStream) return;
+
+        socketRef.current = new WebSocket(WEBSOCKET_URL);
+
+        socketRef.current.onopen = () => {
+            console.log("WebSocket connection opened.");
+            setStatus(AppStatus.Streaming);
+
+            mediaRecorderRef.current = new MediaRecorder(combinedStream, {
+                mimeType: 'video/webm; codecs=vp8,opus'
+            });
+
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(event.data);
+                }
+            };
+
+            mediaRecorderRef.current.onstop = () => {
+                cleanup();
+                setStatus(AppStatus.Idle);
+            };
+
+            mediaRecorderRef.current.start(1000); // Send data every 1 second
+        };
+
+        socketRef.current.onerror = (event) => {
+            console.error("WebSocket error:", event);
+            setError("Failed to connect to streaming server. Ensure the server is running.");
+            setStatus(AppStatus.Error);
+            cleanup();
+        };
+        
+        socketRef.current.onclose = () => {
+            if (status === AppStatus.Streaming) {
+                stopStreaming();
+            }
+        };
+    }, [getMediaStream, cleanup, status]);
+
+    const stopStreaming = useCallback(() => {
+        if (mediaRecorderRef.current && status === AppStatus.Streaming) {
+            mediaRecorderRef.current.stop();
+        } else {
+            cleanup();
+            setStatus(AppStatus.Idle);
+        }
+    }, [status, cleanup]);
+    
+    const sendMessage = useCallback((message: string) => {
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            // The original tool didn't specify a format, sending as plain text.
+            socketRef.current.send(message);
+        } else {
+            console.warn("Cannot send message, WebSocket is not open.");
+        }
+    }, []);
 
     const downloadRecording = useCallback(() => {
         if (videoUrl) {
@@ -111,24 +193,16 @@ export const useScreenRecorder = () => {
     }, [videoUrl]);
 
     const reset = useCallback(() => {
+        cleanup();
         setVideoUrl(null);
-        setStatus(RecordingStatus.Idle);
+        setStatus(AppStatus.Idle);
         setError(null);
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        setStream(null);
-        recordedChunksRef.current = [];
-    }, [stream]);
+    }, [cleanup]);
 
     return {
-        status,
-        videoUrl,
-        error,
-        stream,
-        startRecording,
-        stopRecording,
-        downloadRecording,
-        reset,
+        status, videoUrl, error, stream,
+        startRecording, stopRecording,
+        startStreaming, stopStreaming,
+        downloadRecording, reset, sendMessage,
     };
 };

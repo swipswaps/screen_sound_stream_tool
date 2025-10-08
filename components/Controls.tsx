@@ -1,28 +1,32 @@
-
 import React from 'react';
-import { RecordingStatus } from '../types';
-import { RecordIcon, StopIcon, DownloadIcon, ResetIcon } from './icons';
+import { AppStatus } from '../types';
+import { RecordIcon, StopIcon, DownloadIcon, ResetIcon, StreamIcon } from './icons';
 
 interface ControlsProps {
-  status: RecordingStatus;
-  onStart: () => void;
-  onStop: () => void;
+  status: AppStatus;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
+  onStartStreaming: () => void;
+  onStopStreaming: () => void;
   onDownload: () => void;
   onReset: () => void;
 }
 
-const StatusIndicator: React.FC<{ status: RecordingStatus }> = ({ status }) => {
-    let text = "Ready to record";
+const StatusIndicator: React.FC<{ status: AppStatus }> = ({ status }) => {
+    let text = "Ready";
     let color = "bg-gray-500";
 
-    if (status === RecordingStatus.Recording) {
+    if (status === AppStatus.Recording) {
         text = "Recording...";
         color = "bg-red-500 animate-pulse";
-    } else if (status === RecordingStatus.Stopped) {
-        text = "Recording finished";
-        color = "bg-blue-500";
-    } else if (status === RecordingStatus.Error) {
-        text = "Error occurred";
+    } else if (status === AppStatus.Streaming) {
+        text = "Streaming...";
+        color = "bg-blue-500 animate-pulse";
+    } else if (status === AppStatus.Stopped) {
+        text = "Finished";
+        color = "bg-green-500";
+    } else if (status === AppStatus.Error) {
+        text = "Error";
         color = "bg-yellow-500";
     }
 
@@ -35,39 +39,60 @@ const StatusIndicator: React.FC<{ status: RecordingStatus }> = ({ status }) => {
 };
 
 
-const Controls: React.FC<ControlsProps> = ({ status, onStart, onStop, onDownload, onReset }) => {
+const Controls: React.FC<ControlsProps> = ({ status, onStartRecording, onStopRecording, onStartStreaming, onStopStreaming, onDownload, onReset }) => {
+  const isIdle = status === AppStatus.Idle || status === AppStatus.Error;
+  
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <StatusIndicator status={status} />
       <div className="flex items-center gap-3">
-        {status === RecordingStatus.Idle || status === RecordingStatus.Error ? (
-          <button
-            onClick={onStart}
-            className="flex items-center gap-2 px-5 py-2.5 font-semibold bg-brand-primary text-white rounded-lg shadow-md hover:bg-brand-primary/90 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
-          >
-            <RecordIcon />
-            Start Recording
-          </button>
-        ) : null}
+        {isIdle && (
+          <>
+            <button
+              onClick={onStartRecording}
+              className="flex items-center gap-2 px-5 py-2.5 font-semibold bg-brand-primary text-white rounded-lg shadow-md hover:bg-brand-primary/90 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
+            >
+              <RecordIcon />
+              Start Recording
+            </button>
+             <button
+              onClick={onStartStreaming}
+              className="flex items-center gap-2 px-5 py-2.5 font-semibold bg-purple-600 text-white rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
+            >
+              <StreamIcon />
+              Start Stream
+            </button>
+          </>
+        )}
 
-        {status === RecordingStatus.Recording ? (
+        {status === AppStatus.Recording && (
           <button
-            onClick={onStop}
+            onClick={onStopRecording}
             className="flex items-center gap-2 px-5 py-2.5 font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
           >
             <StopIcon />
             Stop Recording
           </button>
-        ) : null}
+        )}
+        
+        {status === AppStatus.Streaming && (
+            <button
+            onClick={onStopStreaming}
+            className="flex items-center gap-2 px-5 py-2.5 font-semibold bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
+            >
+            <StopIcon />
+            Stop Stream
+            </button>
+        )}
 
-        {status === RecordingStatus.Stopped ? (
+        {status === AppStatus.Stopped ? (
           <>
             <button
               onClick={onReset}
               className="flex items-center gap-2 px-5 py-2.5 font-semibold bg-gray-600 text-white rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200"
             >
               <ResetIcon />
-              Record Again
+              New Session
             </button>
             <button
               onClick={onDownload}

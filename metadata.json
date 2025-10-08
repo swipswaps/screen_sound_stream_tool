@@ -1,0 +1,7 @@
+{
+  "name": "Screen & Sound Recorder",
+  "description": "A web application to record your screen and microphone audio simultaneously. You can preview the recording and download it as a video file.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

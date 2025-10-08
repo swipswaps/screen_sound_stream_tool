@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, MouseEvent } from 'react';
 import { RecordingStatus, CanvasLayer, VideoLayer, TextLayer } from '../types';
 
 type ActionState = {
@@ -7,6 +7,7 @@ type ActionState = {
   handle: 'tl' | 'tr' | 'bl' | 'br' | 'body' | null;
   offsetX: number;
   offsetY: number;
+  aspectRatio: number;
 };
 
 const HANDLE_SIZE = 10;
@@ -22,7 +23,7 @@ export const useScreenRecorder = () => {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
     const animationFrameRef = useRef<number>();
-    const actionStateRef = useRef<ActionState>({ action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 });
+    const actionStateRef = useRef<ActionState>({ action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0, aspectRatio: 0 });
 
     const getMixedAudioStream = useCallback(() => {
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -49,6 +50,7 @@ export const useScreenRecorder = () => {
         layers.forEach(layer => {
             if (!layer.visible) return;
             ctx.save();
+            ctx.globalAlpha = layer.opacity;
             if (layer.type === 'video' || layer.type === 'image') {
                 ctx.drawImage(layer.element, layer.x, layer.y, layer.width, layer.height);
             } else if (layer.type === 'text') {
@@ -180,7 +182,7 @@ export const useScreenRecorder = () => {
             const { width, height } = track.getSettings();
 
             addLayer({
-                id: `screen-${Date.now()}`, type: 'video', stream, element: videoElement, x: 50, y: 50, width: width ? width / 2 : 640, height: height ? height / 2 : 360, visible: true, sourceType: 'screen'
+                id: `screen-${Date.now()}`, type: 'video', stream, element: videoElement, x: 50, y: 50, width: width ? width / 2 : 640, height: height ? height / 2 : 360, visible: true, sourceType: 'screen', opacity: 1,
             });
         } catch (err) {
             setError(new Error('Could not start screen sharing.'));
@@ -199,7 +201,7 @@ export const useScreenRecorder = () => {
             const { width, height } = track.getSettings();
 
             addLayer({
-                id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam'
+                id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam', opacity: 1,
             });
         } catch (err) {
             setError(new Error('Could not start webcam.'));
@@ -251,7 +253,7 @@ export const useScreenRecorder = () => {
                     img.src = event.target?.result as string;
                     img.onload = () => {
                          addLayer({
-                            id: `image-${Date.now()}`, type: 'image', element: img, x: 150, y: 150, width: img.width / 2, height: img.height / 2, visible: true,
+                            id: `image-${Date.now()}`, type: 'image', element: img, x: 150, y: 150, width: img.width / 2, height: img.height / 2, visible: true, opacity: 1,
                         });
                     }
                 }
@@ -262,13 +264,10 @@ export const useScreenRecorder = () => {
     };
 
     const addGraphicOverlay = () => {
-        const text = prompt("Enter text for the graphic overlay:");
-        if (text) {
-             addLayer({
-                id: `text-${Date.now()}`, type: 'text', text, x: 200, y: 200, width: 300, height: 100, visible: true, 
-                fontSize: 48, fontFamily: 'Arial', fontWeight: 'bold', color: '#FFFFFF',
-            });
-        }
+        addLayer({
+            id: `text-${Date.now()}`, type: 'text', text: 'Your Text Here', x: 200, y: 200, width: 300, height: 100, visible: true, 
+            fontSize: 48, fontFamily: 'Arial', fontWeight: 'bold', color: '#FFFFFF', opacity: 1,
+        });
     };
     
     const getLayerAndHandleAt = (x: number, y: number): { layer: CanvasLayer | null, handle: ActionState['handle'] } => {
@@ -290,21 +289,24 @@ export const useScreenRecorder = () => {
         return { layer: null, handle: null };
     }
     
-    const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // FIX: Use `MouseEvent` from react instead of `React.MouseEvent`
+    const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
         const { offsetX, offsetY } = e.nativeEvent;
         const { layer, handle } = getLayerAndHandleAt(offsetX, offsetY);
         
         if (layer) {
             setSelectedLayerId(layer.id);
             const action = handle === 'body' ? 'move' : 'resize';
-            actionStateRef.current = { action, layerId: layer.id, handle, offsetX: offsetX - layer.x, offsetY: offsetY - layer.y };
+            const aspectRatio = (layer.type === 'image' || layer.type === 'video') ? layer.width / layer.height : 0;
+            actionStateRef.current = { action, layerId: layer.id, handle, offsetX: offsetX - layer.x, offsetY: offsetY - layer.y, aspectRatio };
         } else {
             setSelectedLayerId(null);
-            actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 };
+            actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0, aspectRatio: 0 };
         }
     };
     
-    const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // FIX: Use `MouseEvent` from react instead of `React.MouseEvent`
+    const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
         const { offsetX, offsetY } = e.nativeEvent;
         const { action, layerId, handle, offsetX: startOffsetX, offsetY: startOffsetY } = actionStateRef.current;
         
@@ -316,12 +318,42 @@ export const useScreenRecorder = () => {
                         newLayer.x = offsetX - startOffsetX;
                         newLayer.y = offsetY - startOffsetY;
                     } else if (action === 'resize') {
+                        const { aspectRatio } = actionStateRef.current;
                         const right = newLayer.x + newLayer.width;
                         const bottom = newLayer.y + newLayer.height;
-                        if (handle === 'tl') { newLayer.width = right - offsetX; newLayer.height = bottom - offsetY; newLayer.x = offsetX; newLayer.y = offsetY; }
-                        else if (handle === 'tr') { newLayer.width = offsetX - newLayer.x; newLayer.height = bottom - offsetY; newLayer.y = offsetY; }
-                        else if (handle === 'bl') { newLayer.width = right - offsetX; newLayer.height = offsetY - newLayer.y; newLayer.x = offsetX; }
-                        else if (handle === 'br') { newLayer.width = offsetX - newLayer.x; newLayer.height = offsetY - newLayer.y; }
+
+                        if (aspectRatio > 0 && handle !== 'body') {
+                           let newWidth = newLayer.width;
+                           let newHeight = newLayer.height;
+                           if (handle === 'br') {
+                                newWidth = offsetX - newLayer.x;
+                                newHeight = newWidth / aspectRatio;
+                           } else if (handle === 'bl') {
+                                newWidth = right - offsetX;
+                                newHeight = newWidth / aspectRatio;
+                                newLayer.x = offsetX;
+                           } else if (handle === 'tr') {
+                                newWidth = offsetX - newLayer.x;
+                                newHeight = newWidth / aspectRatio;
+                                newLayer.y = bottom - newHeight;
+                           } else if (handle === 'tl') {
+                                newWidth = right - offsetX;
+                                newHeight = newWidth / aspectRatio;
+                                newLayer.x = offsetX;
+                                newLayer.y = bottom - newHeight;
+                           }
+                           
+                           if (newWidth >= 20 && newHeight >= 20) {
+                                newLayer.width = newWidth;
+                                newLayer.height = newHeight;
+                           }
+                        } else {
+                            if (handle === 'tl') { newLayer.width = right - offsetX; newLayer.height = bottom - offsetY; newLayer.x = offsetX; newLayer.y = offsetY; }
+                            else if (handle === 'tr') { newLayer.width = offsetX - newLayer.x; newLayer.height = bottom - offsetY; newLayer.y = offsetY; }
+                            else if (handle === 'bl') { newLayer.width = right - offsetX; newLayer.height = offsetY - newLayer.y; newLayer.x = offsetX; }
+                            else if (handle === 'br') { newLayer.width = offsetX - newLayer.x; newLayer.height = offsetY - newLayer.y; }
+                        }
+                        
                         if (newLayer.width < 20) newLayer.width = 20;
                         if (newLayer.height < 20) newLayer.height = 20;
                     }
@@ -339,11 +371,11 @@ export const useScreenRecorder = () => {
     };
 
     const handleMouseUp = () => {
-        actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 };
+        actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0, aspectRatio: 0 };
     };
 
     const handleMouseLeave = () => {
-        actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0 };
+        actionStateRef.current = { action: null, layerId: null, handle: null, offsetX: 0, offsetY: 0, aspectRatio: 0 };
         setCursorStyle('default');
     };
 

@@ -8,6 +8,7 @@ export interface Layer {
   width: number;
   height: number;
   visible: boolean;
+  opacity: number;
 }
 
 export interface VideoLayer extends Layer {

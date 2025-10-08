@@ -12,7 +12,15 @@ interface ToolbarProps {
   onGraphic: () => void;
 }
 
-const ToolbarButton = ({ children, onClick, disabled = false, className = '' }: { children: React.ReactNode, onClick?: () => void, disabled?: boolean, className?: string }) => (
+// FIX: Define a props interface for ToolbarButton to fix incorrect 'children' prop missing error.
+interface ToolbarButtonProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+}
+
+const ToolbarButton = ({ children, onClick, disabled = false, className = '' }: ToolbarButtonProps) => (
   <button
     onClick={onClick}
     disabled={disabled}
@@ -96,28 +104,25 @@ const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord,
           <span className="text-xs">Screen</span>
         </ToolbarButton>
         <WebcamButton onWebcam={onWebcam} disabled={false} />
-        <ToolbarButton onClick={onMedia} disabled={!isSessionActive}>
+        <ToolbarButton onClick={onMedia}>
             <MediaIcon className="h-8 w-8" />
             <span className="text-xs">Media</span>
         </ToolbarButton>
-        <ToolbarButton onClick={onGraphic} disabled={!isSessionActive}>
+        <ToolbarButton onClick={onGraphic}>
             <GraphicIcon className="h-8 w-8" />
             <span className="text-xs">Graphic</span>
         </ToolbarButton>
         
-        {isSessionActive && (
-          <>
-            <div className="w-px h-16 bg-gray-700" />
-            <ToolbarButton onClick={onRecord} disabled={status === 'recording'} className={status === 'recording' ? '!bg-red-500 !text-white' : ''}>
-              <RecordIcon className="h-8 w-8" />
-              <span className="text-xs">{status === 'recording' ? 'Recording' : 'Record'}</span>
-            </ToolbarButton>
-            <ToolbarButton onClick={onStop} className="!bg-red-600 hover:!bg-red-700 text-white">
-                <StopIcon className="h-8 w-8" />
-                <span className="text-xs">Stop</span>
-            </ToolbarButton>
-          </>
-        )}
+        <div className="w-px h-16 bg-gray-700" />
+
+        <ToolbarButton onClick={onRecord} disabled={status !== 'session'} className={status === 'recording' ? '!bg-red-500 !text-white' : ''}>
+          <RecordIcon className="h-8 w-8" />
+          <span className="text-xs">{status === 'recording' ? 'Recording' : 'Record'}</span>
+        </ToolbarButton>
+        <ToolbarButton onClick={onStop} disabled={!isSessionActive} className="!bg-red-600 hover:!bg-red-700 text-white">
+            <StopIcon className="h-8 w-8" />
+            <span className="text-xs">Stop</span>
+        </ToolbarButton>
       </div>
     </footer>
   );

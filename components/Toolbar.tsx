@@ -14,9 +14,8 @@ interface ToolbarProps {
   isSettingsPanelOpen: boolean;
 }
 
-// FIX: Define a props interface for ToolbarButton to fix incorrect 'children' prop missing error.
 interface ToolbarButtonProps {
-  children?: React.ReactNode;
+  children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   className?: string;
@@ -42,19 +41,6 @@ const WebcamButton = ({ onWebcam, disabled }: { onWebcam: (deviceId: string) => 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const getDevices = async () => {
-      try {
-        await navigator.mediaDevices.getUserMedia({video: true}); // Request permission
-        const allDevices = await navigator.mediaDevices.enumerateDevices();
-        setDevices(allDevices.filter(d => d.kind === 'videoinput'));
-      } catch (e) {
-        console.error("Could not get video devices", e);
-      }
-    };
-    getDevices();
-  }, []);
-  
-  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
             setIsOpen(false);
@@ -64,6 +50,41 @@ const WebcamButton = ({ onWebcam, disabled }: { onWebcam: (deviceId: string) => 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getDevices = async () => {
+      try {
+        // Ensure we have permission before enumerating
+        await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = allDevices.filter(d => d.kind === 'videoinput');
+        setDevices(videoDevices);
+        return videoDevices;
+      } catch (e) {
+        console.error("Could not get video devices", e);
+        // Silently fail is okay, user might not have a webcam
+        setDevices([]);
+        return [];
+      }
+  };
+
+  const handleClick = async () => {
+      if (isOpen) {
+          setIsOpen(false);
+          return;
+      }
+      
+      const videoDevices = await getDevices();
+      if (videoDevices.length > 0) {
+          if (videoDevices.length === 1) {
+              // If only one device, use it immediately
+              handleSelect(videoDevices[0].deviceId);
+          } else {
+              setIsOpen(true);
+          }
+      } else {
+          console.log("No video devices found or permission denied.");
+      }
+  }
+
   const handleSelect = (deviceId: string) => {
     onWebcam(deviceId);
     setIsOpen(false);
@@ -71,14 +92,15 @@ const WebcamButton = ({ onWebcam, disabled }: { onWebcam: (deviceId: string) => 
 
   return (
     <div className="relative" ref={dropdownRef}>
-        <ToolbarButton onClick={() => setIsOpen(prev => !prev)} disabled={disabled}>
+        {/* FIX: (Line 95) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
+        <ToolbarButton onClick={handleClick} disabled={disabled}>
             <div className="flex items-center space-x-1">
                 <WebcamIcon className="h-8 w-8" />
                 <ChevronDownIcon className="h-4 w-4" />
             </div>
             <span className="text-xs">Webcam</span>
         </ToolbarButton>
-        {isOpen && devices.length > 0 && (
+        {isOpen && devices.length > 1 && (
              <div className="absolute bottom-full mb-2 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10">
                 {devices.map(device => (
                     <button 
@@ -101,20 +123,24 @@ const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord,
   return (
     <footer className="w-full flex justify-center p-4">
       <div className="flex items-center space-x-4 bg-gray-900/50 backdrop-blur-sm p-2 rounded-xl border border-gray-700">
+        {/* FIX: (Line 125) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
         <ToolbarButton onClick={onScreen}>
           <ScreenIcon className="h-8 w-8" />
           <span className="text-xs">Screen</span>
         </ToolbarButton>
         <WebcamButton onWebcam={onWebcam} disabled={false} />
+        {/* FIX: (Line 130) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
         <ToolbarButton onClick={onMedia}>
             <MediaIcon className="h-8 w-8" />
             <span className="text-xs">Media</span>
         </ToolbarButton>
+        {/* FIX: (Line 134) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
         <ToolbarButton onClick={onGraphic}>
             <GraphicIcon className="h-8 w-8" />
             <span className="text-xs">Graphic</span>
         </ToolbarButton>
 
+        {/* FIX: (Line 139) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
         <ToolbarButton onClick={onToggleSettings} disabled={!isSessionActive} className={isSessionActive && isSettingsPanelOpen ? 'bg-brand-primary text-white' : ''}>
           <SettingsIcon className="h-8 w-8" />
           <span className="text-xs">Settings</span>
@@ -122,10 +148,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord,
         
         <div className="w-px h-16 bg-gray-700" />
 
+        {/* FIX: (Line 146) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
         <ToolbarButton onClick={onRecord} disabled={status !== 'session'} className={status === 'recording' ? '!bg-red-500 !text-white' : ''}>
           <RecordIcon className="h-8 w-8" />
           <span className="text-xs">{status === 'recording' ? 'Recording' : 'Record'}</span>
         </ToolbarButton>
+        {/* FIX: (Line 150) Add children to ToolbarButton to satisfy the 'children' prop requirement. */}
         <ToolbarButton onClick={onStop} disabled={!isSessionActive} className="!bg-red-600 hover:!bg-red-700 text-white">
             <StopIcon className="h-8 w-8" />
             <span className="text-xs">Stop</span>

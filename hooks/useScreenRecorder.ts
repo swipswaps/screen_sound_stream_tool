@@ -453,7 +453,6 @@ export const useScreenRecorder = () => {
         return { layer: null, handle: null };
     }
     
-    // FIX: Use `MouseEvent` from react instead of `React.MouseEvent`
     const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
         const { offsetX, offsetY } = e.nativeEvent;
         const { layer, handle } = getLayerAndHandleAt(offsetX, offsetY);
@@ -469,7 +468,6 @@ export const useScreenRecorder = () => {
         }
     };
     
-    // FIX: Use `MouseEvent` from react instead of `React.MouseEvent`
     const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
         const { offsetX, offsetY } = e.nativeEvent;
         const { action, layerId, handle, offsetX: startOffsetX, offsetY: startOffsetY } = actionStateRef.current;

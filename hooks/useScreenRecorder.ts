@@ -54,7 +54,8 @@ export const useScreenRecorder = () => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const dpr = window.devicePixelRatio || 1;
+        ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
         // Render layers in order
         layers.forEach(layer => {
@@ -220,15 +221,28 @@ export const useScreenRecorder = () => {
         animationFrameRef.current = requestAnimationFrame(renderCanvas);
     }, [layers, selectedLayerId]);
 
-    useEffect(() => {
+    const resizeCanvas = useCallback(() => {
         const canvas = canvasRef.current;
-        const resizeCanvas = () => {
-             if (canvas && canvas.parentElement) {
-                const rect = canvas.parentElement.getBoundingClientRect();
-                canvas.width = rect.width;
-                canvas.height = rect.height;
+        if (canvas && canvas.parentElement) {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            
+            // Only resize if needed to avoid resetting the context unnecessarily
+            if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    // Scale the context to match the CSS pixels.
+                    // This means we can still use CSS pixel coordinates for drawing.
+                    ctx.scale(dpr, dpr);
+                }
             }
-        };
+        }
+    }, []);
+
+    useEffect(() => {
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
         animationFrameRef.current = requestAnimationFrame(renderCanvas);
@@ -238,7 +252,7 @@ export const useScreenRecorder = () => {
                 cancelAnimationFrame(animationFrameRef.current);
             }
         };
-    }, [renderCanvas]);
+    }, [renderCanvas, resizeCanvas]);
 
     const stopSession = useCallback(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -304,17 +318,18 @@ export const useScreenRecorder = () => {
             videoElement.muted = true;
             videoElement.play();
 
-            const track = stream.getVideoTracks()[0];
-            const { width, height } = track.getSettings();
+            videoElement.onloadedmetadata = () => {
+                const { videoWidth: width, videoHeight: height } = videoElement;
 
-            const newLayer: VideoLayer = {
-                id: `screen-${Date.now()}`, type: 'video', stream, element: videoElement, x: 50, y: 50, width: width ? width / 2 : 640, height: height ? height / 2 : 360, visible: true, sourceType: 'screen', opacity: 1,
-                cornerRadius: 0,
-                borderWidth: 0,
-                borderColor: '#000000',
-                borderStyle: 'solid',
+                const newLayer: VideoLayer = {
+                    id: `screen-${Date.now()}`, type: 'video', stream, element: videoElement, x: 50, y: 50, width: width ? width / 2 : 640, height: height ? height / 2 : 360, visible: true, sourceType: 'screen', opacity: 1,
+                    cornerRadius: 0,
+                    borderWidth: 0,
+                    borderColor: '#000000',
+                    borderStyle: 'solid',
+                };
+                addLayer(newLayer);
             };
-            addLayer(newLayer);
         } catch (err) {
             setError(new Error('Could not start screen sharing.'));
         }
@@ -322,27 +337,44 @@ export const useScreenRecorder = () => {
     
     const startWebcamLayer = async (deviceId: string) => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId }, audio: true });
+            const highResConstraints = {
+                audio: true,
+                video: {
+                    deviceId,
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                },
+            };
+    
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(highResConstraints);
+            } catch (err) {
+                console.warn("Failed to get 1080p webcam stream, falling back to default.", err);
+                stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId }, audio: true });
+            }
+
             const videoElement = document.createElement('video');
             videoElement.srcObject = stream;
             videoElement.muted = true;
             videoElement.play();
 
-            const track = stream.getVideoTracks()[0];
-            const { width, height } = track.getSettings();
+            videoElement.onloadedmetadata = () => {
+                const { videoWidth: width, videoHeight: height } = videoElement;
 
-            const newLayer: VideoLayer = {
-                id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam', opacity: 1,
-                chromaKeyEnabled: false,
-                chromaKeyColor: '#00ff00',
-                chromaKeySimilarity: 0.2,
-                chromaKeySmoothness: 0.05,
-                cornerRadius: 0,
-                borderWidth: 0,
-                borderColor: '#000000',
-                borderStyle: 'solid',
+                const newLayer: VideoLayer = {
+                    id: `webcam-${Date.now()}`, type: 'video', stream, element: videoElement, x: 100, y: 100, width: width ? width / 4 : 320, height: height ? height / 4 : 180, visible: true, sourceType: 'webcam', opacity: 1,
+                    chromaKeyEnabled: false,
+                    chromaKeyColor: '#00ff00',
+                    chromaKeySimilarity: 0.2,
+                    chromaKeySmoothness: 0.05,
+                    cornerRadius: 0,
+                    borderWidth: 0,
+                    borderColor: '#000000',
+                    borderStyle: 'solid',
+                };
+                addLayer(newLayer);
             };
-            addLayer(newLayer);
         } catch (err) {
             setError(new Error('Could not start webcam.'));
         }
@@ -372,7 +404,12 @@ export const useScreenRecorder = () => {
             canvasStream.addTrack(track);
         });
 
-        mediaRecorderRef.current = new MediaRecorder(canvasStream, { mimeType: supportedMimeType });
+        const mediaRecorderOptions = {
+            mimeType: supportedMimeType,
+            videoBitsPerSecond: 25000000, // 25 Mbps for high quality
+        };
+
+        mediaRecorderRef.current = new MediaRecorder(canvasStream, mediaRecorderOptions);
         recordedChunksRef.current = [];
         
         mediaRecorderRef.current.ondataavailable = (e) => {

@@ -96,7 +96,7 @@ const WebcamButton = ({ onWebcam, disabled }: { onWebcam: (deviceId: string) => 
 
   return (
     <div className="relative" ref={dropdownRef}>
-        {/* FIX: (Error on line 100) The ToolbarButton component requires children. Added icon and text content to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={handleClick} disabled={disabled}>
             <div className="flex items-center space-x-1">
                 <WebcamIcon className="h-8 w-8" />
@@ -127,24 +127,24 @@ const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord,
   return (
     <footer className="w-full flex justify-center p-4">
       <div className="flex items-center space-x-4 bg-gray-900/50 backdrop-blur-sm p-2 rounded-xl border border-gray-700">
-        {/* FIX: (Error on line 131) The ToolbarButton component requires children. Added ScreenIcon and text to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={onScreen}>
           <ScreenIcon className="h-8 w-8" />
           <span className="text-xs">Screen</span>
         </ToolbarButton>
         <WebcamButton onWebcam={onWebcam} disabled={false} />
-        {/* FIX: (Error on line 137) The ToolbarButton component requires children. Added MediaIcon and text to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={onMedia}>
             <MediaIcon className="h-8 w-8" />
             <span className="text-xs">Media</span>
         </ToolbarButton>
-        {/* FIX: (Error on line 142) The ToolbarButton component requires children. Added GraphicIcon and text to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={onGraphic}>
             <GraphicIcon className="h-8 w-8" />
             <span className="text-xs">Graphic</span>
         </ToolbarButton>
 
-        {/* FIX: (Error on line 148) The ToolbarButton component requires children. Added SettingsIcon and text to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={onToggleSettings} disabled={!isSessionActive} className={isSessionActive && isSettingsPanelOpen ? 'bg-brand-primary text-white' : ''}>
           <SettingsIcon className="h-8 w-8" />
           <span className="text-xs">Settings</span>
@@ -152,12 +152,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ status, onScreen, onWebcam, onRecord,
         
         <div className="w-px h-16 bg-gray-700" />
 
-        {/* FIX: (Error on line 156) The ToolbarButton component requires children. Added RecordIcon and text to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={onRecord} disabled={status !== 'session'} className={status === 'recording' ? '!bg-red-500 !text-white' : ''}>
           <RecordIcon className="h-8 w-8" />
           <span className="text-xs">{status === 'recording' ? 'Recording' : 'Record'}</span>
         </ToolbarButton>
-        {/* FIX: (Error on line 161) The ToolbarButton component requires children. Added StopIcon and text to satisfy the component's props contract. */}
+        {/* Fix: Added children to ToolbarButton as it is a required prop. */}
         <ToolbarButton onClick={onStop} disabled={!isSessionActive} className="!bg-red-600 hover:!bg-red-700 text-white">
             <StopIcon className="h-8 w-8" />
             <span className="text-xs">Stop</span>

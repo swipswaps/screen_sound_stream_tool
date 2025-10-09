@@ -221,33 +221,51 @@ export const useScreenRecorder = () => {
         animationFrameRef.current = requestAnimationFrame(renderCanvas);
     }, [layers, selectedLayerId]);
 
-    const resizeCanvas = useCallback(() => {
+    const resizeCanvas = useCallback((width: number, height: number) => {
         const canvas = canvasRef.current;
-        if (canvas && canvas.parentElement) {
-            const rect = canvas.parentElement.getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
-            
-            // Only resize if needed to avoid resetting the context unnecessarily
-            if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-                canvas.width = rect.width * dpr;
-                canvas.height = rect.height * dpr;
+        if (!canvas) return;
 
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    // Scale the context to match the CSS pixels.
-                    // This means we can still use CSS pixel coordinates for drawing.
-                    ctx.scale(dpr, dpr);
-                }
+        const dpr = window.devicePixelRatio || 1;
+        
+        // Only resize if needed to avoid resetting the context unnecessarily
+        if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                // Scale the context to match the CSS pixels.
+                // This means we can still use CSS pixel coordinates for drawing.
+                ctx.scale(dpr, dpr);
             }
         }
     }, []);
 
     useEffect(() => {
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        const canvas = canvasRef.current;
+        const parent = canvas?.parentElement;
+        if (!parent) {
+            return;
+        }
+
+        // Use ResizeObserver to automatically resize canvas when its container changes.
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry) {
+                const { width, height } = entry.contentRect;
+                resizeCanvas(width, height);
+            }
+        });
+        observer.observe(parent);
+        
+        // Initial setup
+        const initialRect = parent.getBoundingClientRect();
+        resizeCanvas(initialRect.width, initialRect.height);
+        
         animationFrameRef.current = requestAnimationFrame(renderCanvas);
+
         return () => {
-            window.removeEventListener('resize', resizeCanvas);
+            observer.disconnect();
             if (animationFrameRef.current) {
                 cancelAnimationFrame(animationFrameRef.current);
             }
